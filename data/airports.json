@@ -1,0 +1,888 @@
+{
+  "KPAO": {
+    "name": "Palo Alto Airport",
+    "city": "Palo Alto",
+    "state": "CA",
+    "lat": 37.4611,
+    "lon": -122.1151,
+    "elevation_ft": 7,
+    "runways": [
+      {
+        "id": "31",
+        "heading": 310,
+        "length_ft": 2443,
+        "width_ft": 70
+      },
+      {
+        "id": "13",
+        "heading": 130,
+        "length_ft": 2443,
+        "width_ft": 70
+      }
+    ]
+  },
+  "KSQL": {
+    "name": "San Carlos Airport",
+    "city": "San Carlos",
+    "state": "CA",
+    "lat": 37.5119,
+    "lon": -122.2495,
+    "elevation_ft": 5,
+    "runways": [
+      {
+        "id": "30",
+        "heading": 300,
+        "length_ft": 2621,
+        "width_ft": 75
+      },
+      {
+        "id": "12",
+        "heading": 120,
+        "length_ft": 2621,
+        "width_ft": 75
+      }
+    ]
+  },
+  "KRHV": {
+    "name": "Reid-Hillview Airport",
+    "city": "San Jose",
+    "state": "CA",
+    "lat": 37.3329,
+    "lon": -121.8198,
+    "elevation_ft": 133,
+    "runways": [
+      {
+        "id": "31R",
+        "heading": 310,
+        "length_ft": 3100,
+        "width_ft": 75
+      },
+      {
+        "id": "13L",
+        "heading": 130,
+        "length_ft": 3100,
+        "width_ft": 75
+      },
+      {
+        "id": "31L",
+        "heading": 310,
+        "length_ft": 3100,
+        "width_ft": 75
+      },
+      {
+        "id": "13R",
+        "heading": 130,
+        "length_ft": 3100,
+        "width_ft": 75
+      }
+    ]
+  },
+  "KSJC": {
+    "name": "San Jose Mineta International",
+    "city": "San Jose",
+    "state": "CA",
+    "lat": 37.3626,
+    "lon": -121.929,
+    "elevation_ft": 62,
+    "runways": [
+      {
+        "id": "30L",
+        "heading": 305,
+        "length_ft": 11000,
+        "width_ft": 150
+      },
+      {
+        "id": "12R",
+        "heading": 125,
+        "length_ft": 11000,
+        "width_ft": 150
+      },
+      {
+        "id": "30R",
+        "heading": 305,
+        "length_ft": 11000,
+        "width_ft": 150
+      },
+      {
+        "id": "12L",
+        "heading": 125,
+        "length_ft": 11000,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KSFO": {
+    "name": "San Francisco International",
+    "city": "San Francisco",
+    "state": "CA",
+    "lat": 37.6189,
+    "lon": -122.375,
+    "elevation_ft": 13,
+    "runways": [
+      {
+        "id": "28L",
+        "heading": 284,
+        "length_ft": 11381,
+        "width_ft": 200
+      },
+      {
+        "id": "10R",
+        "heading": 104,
+        "length_ft": 11381,
+        "width_ft": 200
+      },
+      {
+        "id": "28R",
+        "heading": 284,
+        "length_ft": 11870,
+        "width_ft": 200
+      },
+      {
+        "id": "10L",
+        "heading": 104,
+        "length_ft": 11870,
+        "width_ft": 200
+      },
+      {
+        "id": "01L",
+        "heading": 14,
+        "length_ft": 7650,
+        "width_ft": 200
+      },
+      {
+        "id": "19R",
+        "heading": 194,
+        "length_ft": 7650,
+        "width_ft": 200
+      },
+      {
+        "id": "01R",
+        "heading": 14,
+        "length_ft": 8650,
+        "width_ft": 200
+      },
+      {
+        "id": "19L",
+        "heading": 194,
+        "length_ft": 8650,
+        "width_ft": 200
+      }
+    ]
+  },
+  "KOAK": {
+    "name": "Oakland International Airport",
+    "city": "Oakland",
+    "state": "CA",
+    "lat": 37.7213,
+    "lon": -122.2208,
+    "elevation_ft": 9,
+    "runways": [
+      {
+        "id": "30",
+        "heading": 296,
+        "length_ft": 10520,
+        "width_ft": 150
+      },
+      {
+        "id": "12",
+        "heading": 116,
+        "length_ft": 10520,
+        "width_ft": 150
+      },
+      {
+        "id": "28R",
+        "heading": 278,
+        "length_ft": 5458,
+        "width_ft": 150
+      },
+      {
+        "id": "10L",
+        "heading": 98,
+        "length_ft": 5458,
+        "width_ft": 150
+      },
+      {
+        "id": "28L",
+        "heading": 278,
+        "length_ft": 6213,
+        "width_ft": 150
+      },
+      {
+        "id": "10R",
+        "heading": 98,
+        "length_ft": 6213,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KHAF": {
+    "name": "Half Moon Bay Airport",
+    "city": "Half Moon Bay",
+    "state": "CA",
+    "lat": 37.5134,
+    "lon": -122.5012,
+    "elevation_ft": 66,
+    "runways": [
+      {
+        "id": "30",
+        "heading": 300,
+        "length_ft": 5000,
+        "width_ft": 150
+      },
+      {
+        "id": "12",
+        "heading": 120,
+        "length_ft": 5000,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KLVK": {
+    "name": "Livermore Municipal Airport",
+    "city": "Livermore",
+    "state": "CA",
+    "lat": 37.6934,
+    "lon": -121.8204,
+    "elevation_ft": 400,
+    "runways": [
+      {
+        "id": "25R",
+        "heading": 254,
+        "length_ft": 5253,
+        "width_ft": 100
+      },
+      {
+        "id": "07L",
+        "heading": 74,
+        "length_ft": 5253,
+        "width_ft": 100
+      },
+      {
+        "id": "25L",
+        "heading": 254,
+        "length_ft": 2699,
+        "width_ft": 75
+      },
+      {
+        "id": "07R",
+        "heading": 74,
+        "length_ft": 2699,
+        "width_ft": 75
+      }
+    ]
+  },
+  "KCCR": {
+    "name": "Buchanan Field Airport",
+    "city": "Concord",
+    "state": "CA",
+    "lat": 37.9897,
+    "lon": -122.0569,
+    "elevation_ft": 26,
+    "runways": [
+      {
+        "id": "19R",
+        "heading": 192,
+        "length_ft": 5001,
+        "width_ft": 150
+      },
+      {
+        "id": "01L",
+        "heading": 12,
+        "length_ft": 5001,
+        "width_ft": 150
+      },
+      {
+        "id": "19L",
+        "heading": 192,
+        "length_ft": 2770,
+        "width_ft": 75
+      },
+      {
+        "id": "01R",
+        "heading": 12,
+        "length_ft": 2770,
+        "width_ft": 75
+      },
+      {
+        "id": "14L",
+        "heading": 140,
+        "length_ft": 4602,
+        "width_ft": 150
+      },
+      {
+        "id": "32R",
+        "heading": 320,
+        "length_ft": 4602,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KSTS": {
+    "name": "Charles M. Schulz - Sonoma County",
+    "city": "Santa Rosa",
+    "state": "CA",
+    "lat": 38.5089,
+    "lon": -122.8129,
+    "elevation_ft": 129,
+    "runways": [
+      {
+        "id": "14",
+        "heading": 140,
+        "length_ft": 6000,
+        "width_ft": 150
+      },
+      {
+        "id": "32",
+        "heading": 320,
+        "length_ft": 6000,
+        "width_ft": 150
+      },
+      {
+        "id": "02",
+        "heading": 20,
+        "length_ft": 5202,
+        "width_ft": 100
+      },
+      {
+        "id": "20",
+        "heading": 200,
+        "length_ft": 5202,
+        "width_ft": 100
+      }
+    ]
+  },
+  "KMRY": {
+    "name": "Monterey Regional Airport",
+    "city": "Monterey",
+    "state": "CA",
+    "lat": 36.587,
+    "lon": -121.8429,
+    "elevation_ft": 257,
+    "runways": [
+      {
+        "id": "10R",
+        "heading": 100,
+        "length_ft": 7616,
+        "width_ft": 150
+      },
+      {
+        "id": "28L",
+        "heading": 280,
+        "length_ft": 7616,
+        "width_ft": 150
+      },
+      {
+        "id": "10L",
+        "heading": 100,
+        "length_ft": 3503,
+        "width_ft": 60
+      },
+      {
+        "id": "28R",
+        "heading": 280,
+        "length_ft": 3503,
+        "width_ft": 60
+      }
+    ]
+  },
+  "KAPC": {
+    "name": "Napa County Airport",
+    "city": "Napa",
+    "state": "CA",
+    "lat": 38.2132,
+    "lon": -122.2807,
+    "elevation_ft": 35,
+    "runways": [
+      {
+        "id": "18R",
+        "heading": 185,
+        "length_ft": 5930,
+        "width_ft": 150
+      },
+      {
+        "id": "36L",
+        "heading": 5,
+        "length_ft": 5930,
+        "width_ft": 150
+      },
+      {
+        "id": "06",
+        "heading": 65,
+        "length_ft": 5008,
+        "width_ft": 150
+      },
+      {
+        "id": "24",
+        "heading": 245,
+        "length_ft": 5008,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KSCK": {
+    "name": "Stockton Metropolitan Airport",
+    "city": "Stockton",
+    "state": "CA",
+    "lat": 37.8942,
+    "lon": -121.2383,
+    "elevation_ft": 33,
+    "runways": [
+      {
+        "id": "29R",
+        "heading": 293,
+        "length_ft": 10650,
+        "width_ft": 150
+      },
+      {
+        "id": "11L",
+        "heading": 113,
+        "length_ft": 10650,
+        "width_ft": 150
+      },
+      {
+        "id": "29L",
+        "heading": 293,
+        "length_ft": 4448,
+        "width_ft": 75
+      },
+      {
+        "id": "11R",
+        "heading": 113,
+        "length_ft": 4448,
+        "width_ft": 75
+      }
+    ]
+  },
+  "KSMF": {
+    "name": "Sacramento International Airport",
+    "city": "Sacramento",
+    "state": "CA",
+    "lat": 38.6954,
+    "lon": -121.5908,
+    "elevation_ft": 27,
+    "runways": [
+      {
+        "id": "17R",
+        "heading": 169,
+        "length_ft": 8605,
+        "width_ft": 150
+      },
+      {
+        "id": "35L",
+        "heading": 349,
+        "length_ft": 8605,
+        "width_ft": 150
+      },
+      {
+        "id": "17L",
+        "heading": 169,
+        "length_ft": 8600,
+        "width_ft": 150
+      },
+      {
+        "id": "35R",
+        "heading": 349,
+        "length_ft": 8600,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KLAX": {
+    "name": "Los Angeles International",
+    "city": "Los Angeles",
+    "state": "CA",
+    "lat": 33.9425,
+    "lon": -118.4081,
+    "elevation_ft": 128,
+    "runways": [
+      {
+        "id": "25L",
+        "heading": 251,
+        "length_ft": 12091,
+        "width_ft": 150
+      },
+      {
+        "id": "07R",
+        "heading": 71,
+        "length_ft": 12091,
+        "width_ft": 150
+      },
+      {
+        "id": "25R",
+        "heading": 251,
+        "length_ft": 12923,
+        "width_ft": 150
+      },
+      {
+        "id": "07L",
+        "heading": 71,
+        "length_ft": 12923,
+        "width_ft": 150
+      },
+      {
+        "id": "24L",
+        "heading": 251,
+        "length_ft": 10885,
+        "width_ft": 150
+      },
+      {
+        "id": "06R",
+        "heading": 71,
+        "length_ft": 10885,
+        "width_ft": 150
+      },
+      {
+        "id": "24R",
+        "heading": 251,
+        "length_ft": 8926,
+        "width_ft": 150
+      },
+      {
+        "id": "06L",
+        "heading": 71,
+        "length_ft": 8926,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KVNY": {
+    "name": "Van Nuys Airport",
+    "city": "Van Nuys",
+    "state": "CA",
+    "lat": 34.2098,
+    "lon": -118.49,
+    "elevation_ft": 802,
+    "runways": [
+      {
+        "id": "16R",
+        "heading": 164,
+        "length_ft": 8001,
+        "width_ft": 150
+      },
+      {
+        "id": "34L",
+        "heading": 344,
+        "length_ft": 8001,
+        "width_ft": 150
+      },
+      {
+        "id": "16L",
+        "heading": 164,
+        "length_ft": 4011,
+        "width_ft": 75
+      },
+      {
+        "id": "34R",
+        "heading": 344,
+        "length_ft": 4011,
+        "width_ft": 75
+      }
+    ]
+  },
+  "KSMO": {
+    "name": "Santa Monica Municipal",
+    "city": "Santa Monica",
+    "state": "CA",
+    "lat": 34.0158,
+    "lon": -118.4513,
+    "elevation_ft": 177,
+    "runways": [
+      {
+        "id": "21",
+        "heading": 213,
+        "length_ft": 3500,
+        "width_ft": 150
+      },
+      {
+        "id": "03",
+        "heading": 33,
+        "length_ft": 3500,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KSNA": {
+    "name": "John Wayne Airport",
+    "city": "Santa Ana",
+    "state": "CA",
+    "lat": 33.6757,
+    "lon": -117.8682,
+    "elevation_ft": 56,
+    "runways": [
+      {
+        "id": "20R",
+        "heading": 200,
+        "length_ft": 5700,
+        "width_ft": 150
+      },
+      {
+        "id": "02L",
+        "heading": 20,
+        "length_ft": 5700,
+        "width_ft": 150
+      },
+      {
+        "id": "20L",
+        "heading": 200,
+        "length_ft": 2886,
+        "width_ft": 75
+      },
+      {
+        "id": "02R",
+        "heading": 20,
+        "length_ft": 2886,
+        "width_ft": 75
+      }
+    ]
+  },
+  "KCRQ": {
+    "name": "McClellan-Palomar Airport",
+    "city": "Carlsbad",
+    "state": "CA",
+    "lat": 33.1283,
+    "lon": -117.28,
+    "elevation_ft": 331,
+    "runways": [
+      {
+        "id": "24",
+        "heading": 240,
+        "length_ft": 4897,
+        "width_ft": 150
+      },
+      {
+        "id": "06",
+        "heading": 60,
+        "length_ft": 4897,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KMYF": {
+    "name": "Montgomery-Gibbs Executive",
+    "city": "San Diego",
+    "state": "CA",
+    "lat": 32.8157,
+    "lon": -117.1396,
+    "elevation_ft": 427,
+    "runways": [
+      {
+        "id": "28R",
+        "heading": 280,
+        "length_ft": 4598,
+        "width_ft": 100
+      },
+      {
+        "id": "10L",
+        "heading": 100,
+        "length_ft": 4598,
+        "width_ft": 100
+      },
+      {
+        "id": "28L",
+        "heading": 280,
+        "length_ft": 3400,
+        "width_ft": 60
+      },
+      {
+        "id": "10R",
+        "heading": 100,
+        "length_ft": 3400,
+        "width_ft": 60
+      }
+    ]
+  },
+  "KSEE": {
+    "name": "Gillespie Field",
+    "city": "San Diego",
+    "state": "CA",
+    "lat": 32.8262,
+    "lon": -116.9724,
+    "elevation_ft": 388,
+    "runways": [
+      {
+        "id": "27R",
+        "heading": 270,
+        "length_ft": 5342,
+        "width_ft": 100
+      },
+      {
+        "id": "09L",
+        "heading": 90,
+        "length_ft": 5342,
+        "width_ft": 100
+      },
+      {
+        "id": "27L",
+        "heading": 270,
+        "length_ft": 2738,
+        "width_ft": 60
+      },
+      {
+        "id": "09R",
+        "heading": 90,
+        "length_ft": 2738,
+        "width_ft": 60
+      },
+      {
+        "id": "17",
+        "heading": 170,
+        "length_ft": 4145,
+        "width_ft": 100
+      },
+      {
+        "id": "35",
+        "heading": 350,
+        "length_ft": 4145,
+        "width_ft": 100
+      }
+    ]
+  },
+  "KSEA": {
+    "name": "Seattle-Tacoma International",
+    "city": "Seattle",
+    "state": "WA",
+    "lat": 47.449,
+    "lon": -122.3093,
+    "elevation_ft": 433,
+    "runways": [
+      {
+        "id": "16L",
+        "heading": 160,
+        "length_ft": 11901,
+        "width_ft": 150
+      },
+      {
+        "id": "34R",
+        "heading": 340,
+        "length_ft": 11901,
+        "width_ft": 150
+      },
+      {
+        "id": "16C",
+        "heading": 160,
+        "length_ft": 9426,
+        "width_ft": 150
+      },
+      {
+        "id": "34C",
+        "heading": 340,
+        "length_ft": 9426,
+        "width_ft": 150
+      },
+      {
+        "id": "16R",
+        "heading": 160,
+        "length_ft": 8500,
+        "width_ft": 150
+      },
+      {
+        "id": "34L",
+        "heading": 340,
+        "length_ft": 8500,
+        "width_ft": 150
+      }
+    ]
+  },
+  "KBFI": {
+    "name": "Boeing Field / King County Intl",
+    "city": "Seattle",
+    "state": "WA",
+    "lat": 47.53,
+    "lon": -122.3019,
+    "elevation_ft": 21,
+    "runways": [
+      {
+        "id": "14R",
+        "heading": 141,
+        "length_ft": 10007,
+        "width_ft": 200
+      },
+      {
+        "id": "32L",
+        "heading": 321,
+        "length_ft": 10007,
+        "width_ft": 200
+      },
+      {
+        "id": "14L",
+        "heading": 141,
+        "length_ft": 3709,
+        "width_ft": 100
+      },
+      {
+        "id": "32R",
+        "heading": 321,
+        "length_ft": 3709,
+        "width_ft": 100
+      }
+    ]
+  },
+  "KORD": {
+    "name": "Chicago O'Hare International",
+    "city": "Chicago",
+    "state": "IL",
+    "lat": 41.9742,
+    "lon": -87.9073,
+    "elevation_ft": 672,
+    "runways": [
+      {
+        "id": "10L",
+        "heading": 100,
+        "length_ft": 13000,
+        "width_ft": 150
+      },
+      {
+        "id": "28R",
+        "heading": 280,
+        "length_ft": 13000,
+        "width_ft": 150
+      },
+      {
+        "id": "09C",
+        "heading": 90,
+        "length_ft": 11245,
+        "width_ft": 200
+      },
+      {
+        "id": "27C",
+        "heading": 270,
+        "length_ft": 11245,
+        "width_ft": 200
+      }
+    ]
+  },
+  "KJFK": {
+    "name": "John F. Kennedy International",
+    "city": "New York",
+    "state": "NY",
+    "lat": 40.6398,
+    "lon": -73.7789,
+    "elevation_ft": 13,
+    "runways": [
+      {
+        "id": "04L",
+        "heading": 44,
+        "length_ft": 12079,
+        "width_ft": 150
+      },
+      {
+        "id": "22R",
+        "heading": 224,
+        "length_ft": 12079,
+        "width_ft": 150
+      },
+      {
+        "id": "13L",
+        "heading": 134,
+        "length_ft": 10000,
+        "width_ft": 150
+      },
+      {
+        "id": "31R",
+        "heading": 314,
+        "length_ft": 10000,
+        "width_ft": 150
+      }
+    ]
+  }
+}

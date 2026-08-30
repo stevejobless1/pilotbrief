@@ -1,0 +1,19 @@
+﻿version: '3.8'
+
+services:
+  pilotbrief:
+    build: .
+    container_name: pilotbrief-bot
+    restart: unless-stopped
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - ALLOWED_USER_IDS=${ALLOWED_USER_IDS:-454870771039469568}
+      - HOME_ICAO=${HOME_ICAO:-KPAO}
+      - ICAL_URL=${ICAL_URL:-}
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/pilotbrief.db
+    volumes:
+      - pilotbrief-data:/app/data
+
+volumes:
+  pilotbrief-data:
+    driver: local

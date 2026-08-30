@@ -1,0 +1,236 @@
+﻿import io
+import asyncio
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Dict, Any
+import discord
+from sqlalchemy import select, and_
+
+from database.session import AsyncSessionLocal
+from database.models import UserSettings, FlightEvent, AlertLog, PersonalMinima
+from services.weather.awc_client import awc_client
+from services.weather.decoder import METARDecoder
+from services.weather.crosswind import CrosswindCalculator, airport_db
+from services.weather.minima_checker import MinimaChecker
+from services.notam.notam_client import notam_client
+from services.radar.map_generator import radar_map_generator
+from services.calendar.ical_service import calendar_service
+from bot.views.briefing_embeds import BriefingEmbedBuilder, BriefingView
+from config.settings import settings, is_user_allowed
+
+logger = logging.getLogger(__name__)
+
+class AlertManager:
+    def __init__(self, bot: discord.Client):
+        self.bot = bot
+        self._running = False
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self):
+        if not self._running:
+            self._running = True
+            self._task = asyncio.create_task(self._scheduler_loop())
+            logger.info("AlertManager scheduler loop started.")
+
+    def stop(self):
+        self._running = False
+        if self._task:
+            self._task.cancel()
+
+    async def _scheduler_loop(self):
+        """Main periodic loop running every 60 seconds."""
+        await self.bot.wait_until_ready()
+        
+        last_cal_sync = datetime.min
+
+        while self._running:
+            try:
+                now = datetime.utcnow()
+
+                # Periodic calendar sync (every 5 mins)
+                if (now - last_cal_sync).total_seconds() >= settings.CALENDAR_POLL_INTERVAL_SECONDS:
+                    for uid in settings.ALLOWED_USER_IDS:
+                        await calendar_service.sync_user_calendar(uid)
+                    last_cal_sync = now
+
+                # Check and dispatch pending milestone alerts
+                await self._check_and_dispatch_alerts(now)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in AlertManager loop: {e}", exc_info=True)
+
+            await asyncio.sleep(60)
+
+    async def _check_and_dispatch_alerts(self, now: datetime):
+        async with AsyncSessionLocal() as session:
+            # Query upcoming flights in next 8 hours
+            stmt = select(FlightEvent).where(
+                and_(
+                    FlightEvent.start_time > now,
+                    FlightEvent.start_time <= now + timedelta(hours=8)
+                )
+            )
+            result = await session.execute(stmt)
+            events = result.scalars().all()
+
+            for event in events:
+                user = await session.get(UserSettings, event.discord_user_id)
+                if not user or not is_user_allowed(user.discord_user_id):
+                    continue
+
+                intervals = user.get_alert_intervals()
+                minutes_until_start = (event.start_time - now).total_seconds() / 60.0
+
+                # Check each milestone interval
+                for interval in sorted(intervals, reverse=True):
+                    # Trigger condition: within a 10 minute grace window of the target interval
+                    if minutes_until_start <= interval and minutes_until_start >= (interval - 10):
+                        # Verify if this alert was already sent
+                        alert_stmt = select(AlertLog).where(
+                            and_(
+                                AlertLog.event_id == event.event_id,
+                                AlertLog.interval_minutes == interval
+                            )
+                        )
+                        existing_alert = (await session.execute(alert_stmt)).scalar_one_or_none()
+                        if not existing_alert:
+                            logger.info(f"Triggering {interval}m countdown briefing for event {event.summary}")
+                            success = await self.send_flight_briefing(
+                                discord_user_id=event.discord_user_id,
+                                event_title=event.summary,
+                                dep_icao=event.departure_icao,
+                                dest_icao=event.destination_icao,
+                                start_time=event.start_time,
+                                interval_minutes=interval
+                            )
+                            if success:
+                                log_entry = AlertLog(
+                                    event_id=event.event_id,
+                                    discord_user_id=event.discord_user_id,
+                                    interval_minutes=interval,
+                                    sent_at=datetime.utcnow(),
+                                    status="SENT"
+                                )
+                                session.add(log_entry)
+                                await session.commit()
+
+    async def send_flight_briefing(
+        self,
+        discord_user_id: int,
+        event_title: str,
+        dep_icao: str,
+        dest_icao: Optional[str],
+        start_time: datetime,
+        interval_minutes: Optional[int] = None
+    ) -> bool:
+        """
+        Compiles all aviation weather data, generates radar map, and sends DM to the pilot.
+        """
+        if not is_user_allowed(discord_user_id):
+            logger.warning(f"Unauthorized DM attempt blocked for user {discord_user_id}")
+            return False
+
+        user_obj = await self.bot.fetch_user(discord_user_id)
+        if not user_obj:
+            logger.error(f"Could not find Discord user {discord_user_id}")
+            return False
+
+        # 1. Fetch Departure METAR & TAF
+        dep_elev = airport_db.get_elevation(dep_icao)
+        raw_metar_dep = await awc_client.get_metar(dep_icao)
+        decoded_metar_dep = METARDecoder.decode_metar(raw_metar_dep, dep_elev) if raw_metar_dep else None
+        
+        raw_taf_dep = await awc_client.get_taf(dep_icao)
+        decoded_taf_dep = METARDecoder.decode_taf(raw_taf_dep) if raw_taf_dep else None
+
+        # 2. Fetch Destination METAR (if cross country)
+        decoded_metar_dest = None
+        if dest_icao:
+            dest_elev = airport_db.get_elevation(dest_icao)
+            raw_metar_dest = await awc_client.get_metar(dest_icao)
+            if raw_metar_dest:
+                decoded_metar_dest = METARDecoder.decode_metar(raw_metar_dest, dest_elev)
+
+        # 3. Runway Crosswind Calculations
+        runway_evals = []
+        if decoded_metar_dep:
+            runway_evals = CrosswindCalculator.evaluate_airport_runways(
+                dep_icao,
+                decoded_metar_dep.get("wind_dir"),
+                decoded_metar_dep.get("wind_speed", 0),
+                decoded_metar_dep.get("wind_gust")
+            )
+
+        # 4. User Personal Minimums
+        async with AsyncSessionLocal() as session:
+            minima = await session.get(PersonalMinima, discord_user_id)
+        
+        minima_eval = MinimaChecker.evaluate(
+            decoded_metar_dep or {},
+            runway_evals,
+            minima
+        )
+
+        # 5. SIGMETs & NOTAMs
+        sigmets = await awc_client.get_sigmets()
+        notams = await notam_client.get_notams_for_station(dep_icao)
+
+        # 6. Milestone Label
+        if interval_minutes:
+            if interval_minutes >= 60:
+                hrs = interval_minutes // 60
+                label = f"{hrs} HOUR{'S' if hrs > 1 else ''} OUT BRIEFING"
+            else:
+                label = f"{interval_minutes} MINUTES OUT RAMP CHECK"
+        else:
+            label = "ON-DEMAND PREFLIGHT BRIEFING"
+
+        # 7. Generate Radar & Airspace Overview Map
+        dep_cat = decoded_metar_dep.get("category", "VFR") if decoded_metar_dep else "VFR"
+        dest_cat = decoded_metar_dest.get("category", "VFR") if decoded_metar_dest else None
+        map_bytes = await radar_map_generator.generate_briefing_map(
+            dep_icao=dep_icao,
+            dest_icao=dest_icao,
+            dep_fltcat=dep_cat,
+            dest_fltcat=dest_cat,
+            sigmets=sigmets
+        )
+
+        # 8. Build Discord Embed
+        embed = BriefingEmbedBuilder.build_briefing_embed(
+            event_title=event_title,
+            departure_icao=dep_icao,
+            destination_icao=dest_icao,
+            start_time_utc=start_time,
+            metar_dep=decoded_metar_dep,
+            metar_dest=decoded_metar_dest,
+            taf_dep=decoded_taf_dep,
+            runway_evals=runway_evals,
+            minima_eval=minima_eval,
+            notams=notams,
+            sigmets=sigmets,
+            milestone_label=label
+        )
+
+        file = None
+        if map_bytes:
+            file = discord.File(io.BytesIO(map_bytes), filename="radar_overview.png")
+            embed.set_image(url="attachment://radar_overview.png")
+
+        view = BriefingView(
+            raw_metar=decoded_metar_dep.get("raw", "") if decoded_metar_dep else "",
+            raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else ""
+        )
+
+        try:
+            if file:
+                await user_obj.send(embed=embed, file=file, view=view)
+            else:
+                await user_obj.send(embed=embed, view=view)
+            logger.info(f"Sent DM briefing to user {discord_user_id} for {event_title}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to deliver Discord DM to user {discord_user_id}: {e}")
+            return False
