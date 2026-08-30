@@ -1,4 +1,5 @@
-﻿import discord
+﻿import io
+import discord
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
@@ -145,10 +146,38 @@ class BriefingEmbedBuilder:
         return embed
 
 class BriefingView(discord.ui.View):
-    def __init__(self, raw_metar: str, raw_taf: str):
+    def __init__(
+        self,
+        raw_metar: str,
+        raw_taf: str,
+        tactical_map_bytes: Optional[bytes] = None,
+        sectional_map_bytes: Optional[bytes] = None
+    ):
         super().__init__(timeout=3600)
         self.raw_metar = raw_metar
         self.raw_taf = raw_taf
+        self.tactical_map_bytes = tactical_map_bytes
+        self.sectional_map_bytes = sectional_map_bytes
+
+    @discord.ui.button(label="100 NM Sectional View", style=discord.ButtonStyle.primary, emoji="🗺️")
+    async def show_sectional(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.sectional_map_bytes:
+            file = discord.File(io.BytesIO(self.sectional_map_bytes), filename="sectional_100nm.png")
+            emb = discord.Embed(title="🗺️ ForeFlight VFR Sectional & Regional Weather (100 NM)", color=0x0984E3)
+            emb.set_image(url="attachment://sectional_100nm.png")
+            await interaction.response.send_message(embed=emb, file=file, ephemeral=True)
+        else:
+            await interaction.response.send_message("Sectional map view unavailable.", ephemeral=True)
+
+    @discord.ui.button(label="Tactical Radar View", style=discord.ButtonStyle.secondary, emoji="📡")
+    async def show_tactical(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.tactical_map_bytes:
+            file = discord.File(io.BytesIO(self.tactical_map_bytes), filename="tactical_radar.png")
+            emb = discord.Embed(title="📡 PilotBrief Tactical Radar & Airspace View", color=0x2ECC71)
+            emb.set_image(url="attachment://tactical_radar.png")
+            await interaction.response.send_message(embed=emb, file=file, ephemeral=True)
+        else:
+            await interaction.response.send_message("Tactical radar view unavailable.", ephemeral=True)
 
     @discord.ui.button(label="Raw METAR / TAF", style=discord.ButtonStyle.secondary, emoji="📋")
     async def show_raw(self, interaction: discord.Interaction, button: discord.ui.Button):

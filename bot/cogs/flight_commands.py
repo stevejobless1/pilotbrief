@@ -1,5 +1,6 @@
 ﻿import io
 import logging
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -25,7 +26,7 @@ class FlightCommands(commands.Cog):
 
     flight_group = app_commands.Group(name="flight", description="Aviation weather & flight lesson commands")
 
-    @flight_group.command(name="brief", description="Get an on-demand weather briefing & radar map for any airport(s)")
+    @flight_group.command(name="brief", description="Get an on-demand weather briefing & ForeFlight sectional map for any airport(s)")
     @app_commands.describe(
         departure="Departure Airport ICAO (e.g. KPAO, KSFO, KRYN)",
         destination="Optional Destination Airport ICAO (e.g. KTUS, KSTS)"
@@ -72,20 +73,38 @@ class FlightCommands(commands.Cog):
             sigmets = await awc_client.get_sigmets()
             notams = await notam_client.get_notams_for_station(dep_icao)
 
-            # 6. Generate Map
+            # 6. Generate Maps (100 NM ForeFlight Sectional & Tactical Radar)
             dep_cat = decoded_metar_dep.get("category", "VFR") if decoded_metar_dep else "VFR"
             dest_cat = decoded_metar_dest.get("category", "VFR") if decoded_metar_dest else None
-            map_bytes = None
+            
+            sectional_map_bytes = None
+            tactical_map_bytes = None
             try:
-                map_bytes = await radar_map_generator.generate_briefing_map(
-                    dep_icao=dep_icao,
-                    dest_icao=dest_icao,
-                    dep_fltcat=dep_cat,
-                    dest_fltcat=dest_cat,
-                    sigmets=sigmets
+                sectional_map_bytes, tactical_map_bytes = await asyncio.gather(
+                    radar_map_generator.generate_sectional_overview_map(
+                        dep_icao=dep_icao,
+                        dest_icao=dest_icao,
+                        dep_fltcat=dep_cat,
+                        dest_fltcat=dest_cat,
+                        sigmets=sigmets,
+                        radius_nm=95.0
+                    ),
+                    radar_map_generator.generate_briefing_map(
+                        dep_icao=dep_icao,
+                        dest_icao=dest_icao,
+                        dep_fltcat=dep_cat,
+                        dest_fltcat=dest_cat,
+                        sigmets=sigmets,
+                        radius_nm=50.0
+                    ),
+                    return_exceptions=True
                 )
+                if not isinstance(sectional_map_bytes, bytes):
+                    sectional_map_bytes = None
+                if not isinstance(tactical_map_bytes, bytes):
+                    tactical_map_bytes = None
             except Exception as me:
-                logger.error(f"Error rendering map for {dep_icao}: {me}")
+                logger.error(f"Error rendering maps for {dep_icao}: {me}")
 
             embed = BriefingEmbedBuilder.build_briefing_embed(
                 event_title="On-Demand Weather Briefing",
@@ -102,13 +121,16 @@ class FlightCommands(commands.Cog):
                 milestone_label="INSTANT WEATHER BRIEFING"
             )
 
-            file = discord.File(io.BytesIO(map_bytes), filename="radar_overview.png") if map_bytes else None
+            primary_bytes = sectional_map_bytes or tactical_map_bytes
+            file = discord.File(io.BytesIO(primary_bytes), filename="sectional_overview.png") if primary_bytes else None
             if file:
-                embed.set_image(url="attachment://radar_overview.png")
+                embed.set_image(url="attachment://sectional_overview.png")
 
             view = BriefingView(
                 raw_metar=decoded_metar_dep.get("raw", "") if decoded_metar_dep else "",
-                raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else ""
+                raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else "",
+                tactical_map_bytes=tactical_map_bytes,
+                sectional_map_bytes=sectional_map_bytes
             )
 
             if file:
@@ -178,17 +200,35 @@ class FlightCommands(commands.Cog):
 
             dep_cat = decoded_metar_dep.get("category", "VFR") if decoded_metar_dep else "VFR"
             dest_cat = decoded_metar_dest.get("category", "VFR") if decoded_metar_dest else None
-            map_bytes = None
+            
+            sectional_map_bytes = None
+            tactical_map_bytes = None
             try:
-                map_bytes = await radar_map_generator.generate_briefing_map(
-                    dep_icao=dep_icao,
-                    dest_icao=dest_icao,
-                    dep_fltcat=dep_cat,
-                    dest_fltcat=dest_cat,
-                    sigmets=sigmets
+                sectional_map_bytes, tactical_map_bytes = await asyncio.gather(
+                    radar_map_generator.generate_sectional_overview_map(
+                        dep_icao=dep_icao,
+                        dest_icao=dest_icao,
+                        dep_fltcat=dep_cat,
+                        dest_fltcat=dest_cat,
+                        sigmets=sigmets,
+                        radius_nm=95.0
+                    ),
+                    radar_map_generator.generate_briefing_map(
+                        dep_icao=dep_icao,
+                        dest_icao=dest_icao,
+                        dep_fltcat=dep_cat,
+                        dest_fltcat=dest_cat,
+                        sigmets=sigmets,
+                        radius_nm=50.0
+                    ),
+                    return_exceptions=True
                 )
+                if not isinstance(sectional_map_bytes, bytes):
+                    sectional_map_bytes = None
+                if not isinstance(tactical_map_bytes, bytes):
+                    tactical_map_bytes = None
             except Exception as me:
-                logger.error(f"Error rendering map for {dep_icao}: {me}")
+                logger.error(f"Error rendering maps for {dep_icao}: {me}")
 
             embed = BriefingEmbedBuilder.build_briefing_embed(
                 event_title=event.summary,
@@ -205,13 +245,16 @@ class FlightCommands(commands.Cog):
                 milestone_label="NEXT SCHEDULED FLIGHT BRIEFING"
             )
 
-            file = discord.File(io.BytesIO(map_bytes), filename="radar_overview.png") if map_bytes else None
+            primary_bytes = sectional_map_bytes or tactical_map_bytes
+            file = discord.File(io.BytesIO(primary_bytes), filename="sectional_overview.png") if primary_bytes else None
             if file:
-                embed.set_image(url="attachment://radar_overview.png")
+                embed.set_image(url="attachment://sectional_overview.png")
 
             view = BriefingView(
                 raw_metar=decoded_metar_dep.get("raw", "") if decoded_metar_dep else "",
-                raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else ""
+                raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else "",
+                tactical_map_bytes=tactical_map_bytes,
+                sectional_map_bytes=sectional_map_bytes
             )
 
             if file:

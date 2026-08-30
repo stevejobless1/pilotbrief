@@ -40,20 +40,17 @@ class AlertManager:
     async def _scheduler_loop(self):
         """Main periodic loop running every 60 seconds."""
         await self.bot.wait_until_ready()
-        
         last_cal_sync = datetime.min
 
         while self._running:
             try:
                 now = datetime.utcnow()
 
-                # Periodic calendar sync (every 5 mins)
                 if (now - last_cal_sync).total_seconds() >= settings.CALENDAR_POLL_INTERVAL_SECONDS:
                     for uid in settings.ALLOWED_USER_IDS:
                         await calendar_service.sync_user_calendar(uid)
                     last_cal_sync = now
 
-                # Check and dispatch pending milestone alerts
                 await self._check_and_dispatch_alerts(now)
 
             except asyncio.CancelledError:
@@ -176,16 +173,38 @@ class AlertManager:
         else:
             label = "ON-DEMAND PREFLIGHT BRIEFING"
 
-        # 7. Generate Radar & Airspace Overview Map
+        # 7. Generate Maps (100 NM Sectional & Tactical)
         dep_cat = decoded_metar_dep.get("category", "VFR") if decoded_metar_dep else "VFR"
         dest_cat = decoded_metar_dest.get("category", "VFR") if decoded_metar_dest else None
-        map_bytes = await radar_map_generator.generate_briefing_map(
-            dep_icao=dep_icao,
-            dest_icao=dest_icao,
-            dep_fltcat=dep_cat,
-            dest_fltcat=dest_cat,
-            sigmets=sigmets
-        )
+        
+        sectional_map_bytes = None
+        tactical_map_bytes = None
+        try:
+            sectional_map_bytes, tactical_map_bytes = await asyncio.gather(
+                radar_map_generator.generate_sectional_overview_map(
+                    dep_icao=dep_icao,
+                    dest_icao=dest_icao,
+                    dep_fltcat=dep_cat,
+                    dest_fltcat=dest_cat,
+                    sigmets=sigmets,
+                    radius_nm=95.0
+                ),
+                radar_map_generator.generate_briefing_map(
+                    dep_icao=dep_icao,
+                    dest_icao=dest_icao,
+                    dep_fltcat=dep_cat,
+                    dest_fltcat=dest_cat,
+                    sigmets=sigmets,
+                    radius_nm=50.0
+                ),
+                return_exceptions=True
+            )
+            if not isinstance(sectional_map_bytes, bytes):
+                sectional_map_bytes = None
+            if not isinstance(tactical_map_bytes, bytes):
+                tactical_map_bytes = None
+        except Exception as me:
+            logger.error(f"Error rendering maps for DM alert: {me}")
 
         # 8. Build Discord Embed
         embed = BriefingEmbedBuilder.build_briefing_embed(
@@ -203,14 +222,16 @@ class AlertManager:
             milestone_label=label
         )
 
-        file = None
-        if map_bytes:
-            file = discord.File(io.BytesIO(map_bytes), filename="radar_overview.png")
-            embed.set_image(url="attachment://radar_overview.png")
+        primary_bytes = sectional_map_bytes or tactical_map_bytes
+        file = discord.File(io.BytesIO(primary_bytes), filename="sectional_overview.png") if primary_bytes else None
+        if file:
+            embed.set_image(url="attachment://sectional_overview.png")
 
         view = BriefingView(
             raw_metar=decoded_metar_dep.get("raw", "") if decoded_metar_dep else "",
-            raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else ""
+            raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else "",
+            tactical_map_bytes=tactical_map_bytes,
+            sectional_map_bytes=sectional_map_bytes
         )
 
         try:
