@@ -1,4 +1,5 @@
 ﻿import discord
+from discord import app_commands
 from discord.ext import commands
 import logging
 from config.settings import settings, is_user_allowed
@@ -30,14 +31,26 @@ class PilotBriefBot(commands.Bot):
         async def global_interaction_check(interaction: discord.Interaction) -> bool:
             if not is_user_allowed(interaction.user.id):
                 logger.warning(f"Unauthorized access attempted by user {interaction.user.id} ({interaction.user.name})")
-                await interaction.response.send_message(
-                    "⛔ **Access Denied**: You are not authorized to use this private aviation bot.",
-                    ephemeral=True
-                )
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "⛔ **Access Denied**: You are not authorized to use this private aviation bot.",
+                        ephemeral=True
+                    )
                 return False
             return True
 
         self.tree.interaction_check = global_interaction_check
+
+        # Global tree error handler to prevent infinite loading
+        async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+            logger.error(f"App command error: {error}", exc_info=True)
+            msg = f"⚠️ An error occurred while running this command: `{error}`"
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+
+        self.tree.on_error = on_app_command_error
 
         # Sync slash commands with Discord
         try:

@@ -3,7 +3,7 @@ import math
 import urllib.request
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +48,29 @@ class AirportDatabase:
                         r_id = r.get("id", "")
                         align = r.get("alignment")
                         dim = r.get("dimension", "")
-                        length_ft = int(dim.split("x")[0]) if "x" in dim else 3000
-                        width_ft = int(dim.split("x")[1]) if "x" in dim else 75
+                        length_ft = 3000
+                        width_ft = 75
+                        if "x" in str(dim):
+                            parts = str(dim).split("x")
+                            if parts[0].isdigit():
+                                length_ft = int(parts[0])
+                            if len(parts) > 1 and parts[1].isdigit():
+                                width_ft = int(parts[1])
 
                         if "/" in r_id and align is not None:
                             id1, id2 = r_id.split("/")
-                            h1 = int(align)
-                            h2 = (h1 + 180) % 360
-                            runways.append({"id": id1, "heading": h1, "length_ft": length_ft, "width_ft": width_ft})
-                            runways.append({"id": id2, "heading": h2, "length_ft": length_ft, "width_ft": width_ft})
+                            try:
+                                h1 = int(align)
+                                h2 = (h1 + 180) % 360
+                                runways.append({"id": id1, "heading": h1, "length_ft": length_ft, "width_ft": width_ft})
+                                runways.append({"id": id2, "heading": h2, "length_ft": length_ft, "width_ft": width_ft})
+                            except Exception:
+                                pass
                         elif align is not None:
-                            runways.append({"id": r_id, "heading": int(align), "length_ft": length_ft, "width_ft": width_ft})
+                            try:
+                                runways.append({"id": r_id, "heading": int(align), "length_ft": length_ft, "width_ft": width_ft})
+                            except Exception:
+                                pass
 
                     entry = {
                         "name": apt.get("name", "").strip(),
@@ -114,13 +126,19 @@ class AirportDatabase:
     def get_coordinates(self, icao: str) -> Optional[Tuple[float, float]]:
         apt = self.get_airport(icao)
         if apt and "lat" in apt and "lon" in apt:
-            return (float(apt["lat"]), float(apt["lon"]))
+            try:
+                return (float(apt["lat"]), float(apt["lon"]))
+            except Exception:
+                pass
         return None
 
     def get_elevation(self, icao: str) -> float:
         apt = self.get_airport(icao)
         if apt and "elevation_ft" in apt:
-            return float(apt["elevation_ft"])
+            try:
+                return float(apt["elevation_ft"])
+            except Exception:
+                pass
         return 0.0
 
 airport_db = AirportDatabase()
@@ -128,41 +146,68 @@ airport_db = AirportDatabase()
 class CrosswindCalculator:
     @staticmethod
     def calculate_components(
-        runway_heading: float,
-        wind_dir: Optional[float],
-        wind_speed: float,
-        wind_gust: Optional[float] = None
+        runway_heading: Union[float, int, str],
+        wind_dir: Optional[Union[float, int, str]],
+        wind_speed: Union[float, int, str],
+        wind_gust: Optional[Union[float, int, str]] = None
     ) -> Dict[str, Any]:
         """
         Calculates headwind/tailwind and crosswind components for a specific runway.
+        Safely coerces strings and handles VRB winds.
         """
-        if wind_dir is None or wind_speed == 0:
+        try:
+            rwy_hdg = float(runway_heading)
+        except (ValueError, TypeError):
+            rwy_hdg = 0.0
+
+        try:
+            w_spd = float(wind_speed) if wind_speed is not None else 0.0
+        except (ValueError, TypeError):
+            w_spd = 0.0
+
+        w_gust = None
+        if wind_gust is not None:
+            try:
+                w_gust = float(wind_gust)
+            except (ValueError, TypeError):
+                w_gust = None
+
+        # If wind direction is None, 'VRB', or non-numeric
+        w_dir = None
+        if wind_dir is not None:
+            try:
+                w_dir = float(wind_dir)
+            except (ValueError, TypeError):
+                w_dir = None
+
+        if w_dir is None or w_spd == 0:
             return {
                 "headwind": 0.0,
                 "tailwind": 0.0,
                 "crosswind": 0.0,
                 "crosswind_gust": 0.0,
-                "crosswind_side": "None",
+                "crosswind_side": "Variable" if wind_dir == "VRB" else "None",
+                "angle_diff": 0.0,
                 "is_favorable": True
             }
 
         # Angle between wind and runway heading in degrees
-        angle_diff = (wind_dir - runway_heading + 180) % 360 - 180
+        angle_diff = (w_dir - rwy_hdg + 180) % 360 - 180
         rad = math.radians(angle_diff)
 
         # Headwind is positive along runway direction (cos)
-        along_runway = wind_speed * math.cos(rad)
+        along_runway = w_spd * math.cos(rad)
         headwind = max(0.0, along_runway)
         tailwind = max(0.0, -along_runway)
 
         # Crosswind is perpendicular to runway (sin)
-        cross_component = wind_speed * math.sin(rad)
+        cross_component = w_spd * math.sin(rad)
         crosswind_mag = abs(cross_component)
         crosswind_side = "Left" if cross_component < -0.5 else ("Right" if cross_component > 0.5 else "Direct")
 
         crosswind_gust_mag = 0.0
-        if wind_gust and wind_gust > wind_speed:
-            crosswind_gust_mag = abs(wind_gust * math.sin(rad))
+        if w_gust and w_gust > w_spd:
+            crosswind_gust_mag = abs(w_gust * math.sin(rad))
 
         return {
             "headwind": round(headwind, 1),
@@ -177,9 +222,9 @@ class CrosswindCalculator:
     def evaluate_airport_runways(
         cls,
         icao: str,
-        wind_dir: Optional[float],
-        wind_speed: float,
-        wind_gust: Optional[float] = None
+        wind_dir: Optional[Union[float, int, str]],
+        wind_speed: Union[float, int, str],
+        wind_gust: Optional[Union[float, int, str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Evaluates all runways for an airport and ranks them from most favorable to least favorable.
@@ -190,13 +235,13 @@ class CrosswindCalculator:
 
         results = []
         for rwy in runways:
-            rwy_id = rwy["id"]
-            heading = float(rwy["heading"])
+            rwy_id = rwy.get("id", "??")
+            heading = rwy.get("heading", 0.0)
             length = rwy.get("length_ft", 0)
             comps = cls.calculate_components(heading, wind_dir, wind_speed, wind_gust)
             results.append({
                 "runway_id": rwy_id,
-                "heading": heading,
+                "heading": float(heading) if isinstance(heading, (int, float)) else 0.0,
                 "length_ft": length,
                 **comps
             })

@@ -1,7 +1,10 @@
 ﻿import re
 import math
-from typing import Dict, Any, List, Optional, Tuple
+import logging
+from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 class METARDecoder:
     CATEGORY_COLORS = {
@@ -19,7 +22,7 @@ class METARDecoder:
     }
 
     @staticmethod
-    def parse_altimeter_inhg(raw_ob: str, raw_altim_val: Optional[float]) -> float:
+    def parse_altimeter_inhg(raw_ob: str, raw_altim_val: Optional[Union[float, int, str]]) -> float:
         """
         Extracts altimeter in inches of mercury (inHg, e.g. 29.92).
         Prioritizes raw METAR string 'A2992' -> 29.92, or converts hPa/mb to inHg.
@@ -38,11 +41,15 @@ class METARDecoder:
                 return round(hpa * 0.029529983, 2)
 
         if raw_altim_val is not None:
-            # If greater than 100, it is in hPa (e.g. 1013.6 mb)
-            if raw_altim_val > 100:
-                return round(raw_altim_val * 0.029529983, 2)
-            else:
-                return round(raw_altim_val, 2)
+            try:
+                val = float(raw_altim_val)
+                # If greater than 100, it is in hPa (e.g. 1013.6 mb)
+                if val > 100:
+                    return round(val * 0.029529983, 2)
+                else:
+                    return round(val, 2)
+            except (ValueError, TypeError):
+                pass
 
         return 29.92
 
@@ -69,13 +76,8 @@ class METARDecoder:
         Calculates Pressure Altitude and Density Altitude.
         Returns: (pressure_altitude, density_altitude) in feet.
         """
-        # PA = elevation + (29.92 - altimeter) * 1000
         pa = elevation_ft + (29.92 - altim_inhg) * 1000.0
-        
-        # Standard temperature at pressure altitude: 15C at sea level, lapses 2C per 1000ft
         t_std = 15.0 - 2.0 * (pa / 1000.0)
-        
-        # DA = PA + 120 * (OAT - Standard Temp)
         da = pa + 120.0 * (temp_c - t_std)
         return int(round(pa)), int(round(da))
 
@@ -102,18 +104,45 @@ class METARDecoder:
         obs_time = data.get("obsTime") or data.get("reportTime", "")
 
         # Wind
-        wdir = data.get("wdir")
-        wspd = data.get("wspd", 0)
-        wgst = data.get("wgst")
-        is_variable = (wdir == "VRB" or wdir is None)
-        wind_str = "Calm" if (wspd == 0 or wspd is None) else (
-            f"Variable at {wspd}kt" if is_variable else f"{wdir:03d}° at {wspd}kt" + (f" G{wgst}kt" if wgst else "")
-        )
+        raw_wdir = data.get("wdir")
+        raw_wspd = data.get("wspd", 0)
+        raw_wgst = data.get("wgst")
+
+        try:
+            wspd = float(raw_wspd) if raw_wspd is not None else 0.0
+        except (ValueError, TypeError):
+            wspd = 0.0
+
+        try:
+            wgst = float(raw_wgst) if raw_wgst is not None else None
+        except (ValueError, TypeError):
+            wgst = None
+
+        if raw_wdir is None or str(raw_wdir).strip().upper() == "VRB":
+            wdir = None
+            is_variable = True
+        else:
+            try:
+                wdir = float(raw_wdir)
+                is_variable = False
+            except (ValueError, TypeError):
+                wdir = None
+                is_variable = True
+
+        if wspd == 0:
+            wind_str = "Calm"
+        elif is_variable:
+            wind_str = f"Variable at {int(wspd)}kt" + (f" G{int(wgst)}kt" if wgst else "")
+        else:
+            wind_str = f"{int(wdir):03d}° at {int(wspd)}kt" + (f" G{int(wgst)}kt" if wgst else "")
 
         # Visibility
         vis_val = data.get("visib")
         if isinstance(vis_val, str) and vis_val.endswith("+"):
-            vis_miles = float(vis_val[:-1])
+            try:
+                vis_miles = float(vis_val[:-1])
+            except ValueError:
+                vis_miles = 10.0
         elif vis_val is not None:
             try:
                 vis_miles = float(vis_val)
@@ -133,20 +162,31 @@ class METARDecoder:
             if base is not None:
                 cloud_layers.append(f"{cover} {base}ft AGL")
                 if cover in ["BKN", "OVC", "VV"] and ceiling_ft is None:
-                    ceiling_ft = int(base)
+                    try:
+                        ceiling_ft = int(base)
+                    except (ValueError, TypeError):
+                        pass
             else:
                 cloud_layers.append(cover)
 
         clouds_str = ", ".join(cloud_layers) if cloud_layers else "Clear / SKC"
 
         # Temperature & Dewpoint
-        temp_c = data.get("temp")
-        dew_c = data.get("dewp")
+        try:
+            temp_c = float(data["temp"]) if data.get("temp") is not None else None
+        except (ValueError, TypeError):
+            temp_c = None
+
+        try:
+            dew_c = float(data["dewp"]) if data.get("dewp") is not None else None
+        except (ValueError, TypeError):
+            dew_c = None
+
         temp_str = f"{temp_c:.1f}°C" if temp_c is not None else "N/A"
         dew_str = f"{dew_c:.1f}°C" if dew_c is not None else "N/A"
         spread_str = f"{(temp_c - dew_c):.1f}°C" if (temp_c is not None and dew_c is not None) else "N/A"
 
-        # Altimeter: parse exact inHg format (e.g. 29.93 inHg)
+        # Altimeter
         altim_inhg = cls.parse_altimeter_inhg(raw_text, data.get("altim"))
         altim_hpa = int(round(altim_inhg / 0.029529983))
 
@@ -161,29 +201,24 @@ class METARDecoder:
         else:
             pa, da = int(elevation_ft), int(elevation_ft)
 
-        # Carb icing assessment
         carb_risk = cls.assess_carb_icing_risk(temp_c, dew_c) if (temp_c is not None and dew_c is not None) else "N/A"
-
-        # Weather phenomena (rain, mist, fog, etc.)
         wx_str = data.get("wxString", "")
 
         return {
             "station": station,
             "raw": raw_text,
             "obs_time": obs_time,
-            "category": category,
-            "category_color": cls.CATEGORY_COLORS.get(category, 0x95A5A6),
-            "category_emoji": cls.CATEGORY_EMOJIS.get(category, "⚪"),
             "wind_dir": wdir,
-            "wind_speed": wspd or 0,
+            "wind_speed": wspd,
             "wind_gust": wgst,
             "wind_str": wind_str,
             "visibility_sm": vis_miles,
             "visibility_str": vis_str,
-            "ceiling_ft": ceiling_ft,
+            "clouds": cloud_layers,
             "clouds_str": clouds_str,
+            "ceiling_ft": ceiling_ft,
             "temp_c": temp_c,
-            "dewpoint_c": dew_c,
+            "dew_c": dew_c,
             "temp_str": temp_str,
             "dew_str": dew_str,
             "temp_dew_spread": spread_str,
@@ -193,94 +228,119 @@ class METARDecoder:
             "pressure_altitude": pa,
             "density_altitude": da,
             "carb_icing_risk": carb_risk,
-            "wx_string": wx_str
+            "weather": wx_str,
+            "category": category,
+            "category_color": cls.CATEGORY_COLORS.get(category, 0x95A5A6),
+            "category_emoji": cls.CATEGORY_EMOJIS.get(category, "⚪")
         }
 
     @classmethod
-    def decode_taf(cls, data: Dict[str, Any], origin_station: str = "") -> Dict[str, Any]:
+    def decode_taf(cls, data: Dict[str, Any], origin_station: Optional[str] = None) -> Dict[str, Any]:
         """
-        Parses TAF data for timeline trends and decoded forecast blocks.
+        Parses AWC TAF JSON structure into structured forecast periods.
         """
-        raw_text = data.get("rawTAF") or data.get("rawText", "")
+        raw_taf = data.get("rawTAF") or data.get("rawText", "")
         station = data.get("icaoId") or data.get("id", "UNKNOWN")
-        station_name = data.get("name", station)
-        forecasts = data.get("fcsts", [])
-        
-        parsed_forecasts = []
-        for fc in forecasts:
-            time_from_raw = fc.get("timeFrom")
-            time_to_raw = fc.get("timeTo")
+        issue_time = data.get("issueTime", "")
+        valid_from = data.get("validTimeFrom")
+        valid_to = data.get("validTimeTo")
+        forecast_list = data.get("forecast", [])
 
-            # Convert epoch or ISO timestamps
-            from_str = ""
-            to_str = ""
-            if isinstance(time_from_raw, (int, float)):
-                dt_from = datetime.fromtimestamp(time_from_raw, tz=timezone.utc)
-                from_str = dt_from.strftime("%H:%MZ")
-            elif time_from_raw:
-                from_str = str(time_from_raw)[11:16] + "Z"
-
-            if isinstance(time_to_raw, (int, float)):
-                dt_to = datetime.fromtimestamp(time_to_raw, tz=timezone.utc)
-                to_str = dt_to.strftime("%H:%MZ")
-            elif time_to_raw:
-                to_str = str(time_to_raw)[11:16] + "Z"
-
-            time_window = f"{from_str} - {to_str}" if (from_str and to_str) else "Period"
-
-            fc_type = fc.get("fcstChange") or "INITIAL"
-            wdir = fc.get("wdir")
-            wspd = fc.get("wspd", 0)
-            wgst = fc.get("wgst")
-            vis = fc.get("visib", "6+")
-
-            # Winds string
-            if wspd == 0 or wspd is None:
-                wind_desc = "Calm"
-            elif wdir is None or wdir == "VRB":
-                wind_desc = f"VRB at {wspd}kt" + (f" G{wgst}kt" if wgst else "")
-            else:
-                wind_desc = f"{int(wdir):03d}° at {wspd}kt" + (f" G{wgst}kt" if wgst else "")
-
-            # Clouds & flight category calculation for forecast block
-            clouds_list = []
-            block_ceil = None
-            for c in fc.get("clouds", []):
-                cov = c.get("cover", "")
-                base = c.get("base")
-                if base is not None:
-                    clouds_list.append(f"{cov} {base}ft")
-                    if cov in ["BKN", "OVC", "VV"] and block_ceil is None:
-                        block_ceil = int(base)
-                else:
-                    clouds_list.append(cov)
-
-            clouds_desc = ", ".join(clouds_list) if clouds_list else "SKC"
+        decoded_forecasts = []
+        for fc in forecast_list:
+            fc_type = fc.get("fcstChange", "INITIAL") or "INITIAL"
+            from_time = fc.get("timeFrom")
+            to_time = fc.get("timeTo")
             
-            # Numeric vis
-            try:
-                num_vis = float(str(vis).replace("+", ""))
-            except ValueError:
-                num_vis = 10.0
+            # Format time window
+            t_win_str = ""
+            if from_time and to_time:
+                try:
+                    dt_from = datetime.fromtimestamp(from_time, tz=timezone.utc)
+                    dt_to = datetime.fromtimestamp(to_time, tz=timezone.utc)
+                    t_win_str = f"{dt_from.strftime('%H:%MZ')} - {dt_to.strftime('%H:%MZ')}"
+                except Exception:
+                    t_win_str = f"{from_time} - {to_time}"
+            elif from_time:
+                try:
+                    dt_from = datetime.fromtimestamp(from_time, tz=timezone.utc)
+                    t_win_str = f"From {dt_from.strftime('%H:%MZ')}"
+                except Exception:
+                    t_win_str = f"From {from_time}"
 
-            block_cat = cls.determine_flight_category(num_vis, block_ceil)
-            block_emoji = cls.CATEGORY_EMOJIS.get(block_cat, "🟢")
+            # Wind
+            fc_wdir = fc.get("wdir")
+            fc_wspd = fc.get("wspd", 0)
+            fc_wgst = fc.get("wgst")
+            if fc_wdir == "VRB" or fc_wdir is None:
+                fc_wind_str = f"VRB at {fc_wspd}kt" + (f" G{fc_wgst}kt" if fc_wgst else "")
+            else:
+                try:
+                    fc_wind_str = f"{int(fc_wdir):03d}° at {int(fc_wspd)}kt" + (f" G{int(fc_wgst)}kt" if fc_wgst else "")
+                except Exception:
+                    fc_wind_str = f"{fc_wdir}° at {fc_wspd}kt"
 
-            parsed_forecasts.append({
-                "time_window": time_window,
+            # Visibility
+            fc_vis = fc.get("visib")
+            if fc_vis is not None:
+                try:
+                    fc_vis_f = float(fc_vis)
+                    fc_vis_str = f"{fc_vis_f} SM" if fc_vis_f < 6 else "6+ SM"
+                except ValueError:
+                    fc_vis_str = f"{fc_vis} SM"
+            else:
+                fc_vis_str = "6+ SM"
+
+            # Clouds & Ceiling
+            fc_clouds = fc.get("clouds", [])
+            fc_ceiling = None
+            fc_cloud_layers = []
+            for c in fc_clouds:
+                c_cov = c.get("cover", "")
+                c_base = c.get("base")
+                if c_base is not None:
+                    fc_cloud_layers.append(f"{c_cov} {c_base}ft")
+                    if c_cov in ["BKN", "OVC", "VV"] and fc_ceiling is None:
+                        try:
+                            fc_ceiling = int(c_base)
+                        except (ValueError, TypeError):
+                            pass
+                else:
+                    fc_cloud_layers.append(c_cov)
+
+            fc_clouds_str = ", ".join(fc_cloud_layers) if fc_cloud_layers else "Sky Clear (SKC)"
+
+            # Flight Category
+            fc_cat = fc.get("fltcat")
+            if not fc_cat:
+                vis_num = 6.0
+                if fc_vis is not None:
+                    try:
+                        vis_num = float(fc_vis)
+                    except ValueError:
+                        vis_num = 6.0
+                fc_cat = cls.determine_flight_category(vis_num, fc_ceiling)
+
+            decoded_forecasts.append({
                 "type": fc_type,
-                "wind": wind_desc,
-                "vis": f"{vis} SM",
-                "clouds": clouds_desc,
-                "category": block_cat,
-                "category_emoji": block_emoji
+                "time_window": t_win_str,
+                "wind": fc_wind_str,
+                "vis": fc_vis_str,
+                "clouds": fc_clouds_str,
+                "category": fc_cat,
+                "category_emoji": cls.CATEGORY_EMOJIS.get(fc_cat, "⚪"),
+                "raw": fc.get("rawFcst", "")
             })
+
+        is_fallback = bool(origin_station and origin_station.upper() != station.upper())
 
         return {
             "station": station,
-            "station_name": station_name,
-            "is_nearby_fallback": (origin_station != "" and station.upper() != origin_station.upper()),
-            "origin_station": origin_station,
-            "raw": raw_text,
-            "forecasts": parsed_forecasts
+            "origin_station": origin_station or station,
+            "is_nearby_fallback": is_fallback,
+            "raw": raw_taf,
+            "issue_time": issue_time,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+            "forecasts": decoded_forecasts
         }
