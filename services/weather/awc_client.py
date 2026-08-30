@@ -8,15 +8,6 @@ from services.weather.crosswind import airport_db
 
 logger = logging.getLogger(__name__)
 
-# List of major reporting TAF stations used for fallback search
-COMMON_TAF_STATIONS = [
-    "KSFO", "KSJC", "KOAK", "KCCR", "KSMF", "KMRY", "KSTS", "KAPC", "KSCK", "KFAT",
-    "KLAX", "KSNA", "KVNY", "KBUR", "KLGB", "KONT", "KSAN", "KCRQ", "KMYF", "KPSP",
-    "KSEA", "KBFI", "KPAE", "KPDX", "KORD", "KMDW", "KJFK", "KLGA", "KEWR", "KBOS",
-    "KIAD", "KDCA", "KBWI", "KATL", "KMIA", "KMCO", "KTPA", "KDFW", "KDAL", "KAUS",
-    "KSAT", "KIAH", "KHOU", "KDEN", "KPHX", "KLAS", "KSLC", "KMCI", "KMSP", "KDTW"
-]
-
 class AWCClient:
     def __init__(self, base_url: str = settings.AWC_BASE_URL):
         self.base_url = base_url.rstrip("/")
@@ -57,39 +48,54 @@ class AWCClient:
     async def get_best_taf(self, icao: str) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[float]]:
         """
         Fetches TAF for airport. If the airport does not publish a TAF,
-        searches for the closest reporting TAF station within 45nm.
+        dynamically searches for the closest reporting TAF station within 50nm using NOAA bbox.
         Returns: (taf_data, station_used, distance_nm)
         """
         direct_taf = await self.get_taf(icao)
         if direct_taf:
             return direct_taf, icao.upper(), 0.0
 
-        # Search nearest TAF station
-        origin_coord = airport_db.get_coordinates(icao)
-        if not origin_coord:
+        # Retrieve coordinates
+        coord = airport_db.get_coordinates(icao)
+        if not coord:
+            metar = await self.get_metar(icao)
+            if metar and "lat" in metar and "lon" in metar:
+                coord = (float(metar["lat"]), float(metar["lon"]))
+
+        if not coord:
             return None, None, None
 
-        lat0, lon0 = origin_coord
-        candidates = []
-        for cand in COMMON_TAF_STATIONS:
-            if cand == icao.upper():
-                continue
-            cand_coord = airport_db.get_coordinates(cand)
-            if cand_coord:
-                lat1, lon1 = cand_coord
-                # Calculate distance in NM
-                dlat = (lat1 - lat0) * 60.0
-                dlon = (lon1 - lon0) * 60.0 * math.cos(math.radians((lat0 + lat1) / 2.0))
-                dist = math.sqrt(dlat * dlat + dlon * dlon)
-                if dist <= 45.0:
-                    candidates.append((dist, cand))
+        lat0, lon0 = coord
+        pad = 0.85
+        min_lat = lat0 - pad
+        min_lon = lon0 - pad
+        max_lat = lat0 + pad
+        max_lon = lon0 + pad
+        
+        url = f"{self.base_url}/taf?bbox={min_lat:.2f},{min_lon:.2f},{max_lat:.2f},{max_lon:.2f}&format=json"
+        try:
+            async with aiohttp.ClientSession(headers=self._headers) as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        tafs = await resp.json()
+                        if tafs and isinstance(tafs, list):
+                            candidates = []
+                            for t in tafs:
+                                t_icao = t.get("icaoId", "").upper()
+                                t_lat = float(t.get("lat", 0))
+                                t_lon = float(t.get("lon", 0))
+                                dlat = (t_lat - lat0) * 60.0
+                                dlon = (t_lon - lon0) * 60.0 * math.cos(math.radians((lat0 + t_lat) / 2.0))
+                                dist = math.sqrt(dlat * dlat + dlon * dlon)
+                                candidates.append((dist, t_icao, t))
 
-        candidates.sort()
-        for dist, cand_icao in candidates[:3]:
-            cand_taf = await self.get_taf(cand_icao)
-            if cand_taf:
-                logger.info(f"Using nearby TAF {cand_icao} ({dist:.1f}nm) for {icao}")
-                return cand_taf, cand_icao, round(dist, 1)
+                            candidates.sort(key=lambda x: x[0])
+                            if candidates:
+                                best_dist, best_icao, best_data = candidates[0]
+                                logger.info(f"Using nearby TAF {best_icao} ({best_dist:.1f}nm) for {icao}")
+                                return best_data, best_icao, round(best_dist, 1)
+        except Exception as e:
+            logger.error(f"Error querying regional TAFs for {icao}: {e}")
 
         return None, None, None
 
