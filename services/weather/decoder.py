@@ -1,5 +1,7 @@
-﻿from typing import Dict, Any, List, Optional, Tuple
+﻿import re
 import math
+from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime, timezone
 
 class METARDecoder:
     CATEGORY_COLORS = {
@@ -17,12 +19,39 @@ class METARDecoder:
     }
 
     @staticmethod
+    def parse_altimeter_inhg(raw_ob: str, raw_altim_val: Optional[float]) -> float:
+        """
+        Extracts altimeter in inches of mercury (inHg, e.g. 29.92).
+        Prioritizes raw METAR string 'A2992' -> 29.92, or converts hPa/mb to inHg.
+        """
+        if raw_ob:
+            # Look for standard US A2992 or A3012 format
+            match = re.search(r'\bA(2[7-9]\d{2}|3[0-1]\d{2})\b', raw_ob)
+            if match:
+                digits = match.group(1)
+                return float(f"{digits[:2]}.{digits[2:]}")
+            
+            # Look for QNH format Q1013
+            q_match = re.search(r'\bQ(\d{4})\b', raw_ob)
+            if q_match:
+                hpa = float(q_match.group(1))
+                return round(hpa * 0.029529983, 2)
+
+        if raw_altim_val is not None:
+            # If greater than 100, it is in hPa (e.g. 1013.6 mb)
+            if raw_altim_val > 100:
+                return round(raw_altim_val * 0.029529983, 2)
+            else:
+                return round(raw_altim_val, 2)
+
+        return 29.92
+
+    @staticmethod
     def determine_flight_category(visibility_sm: Optional[float], ceiling_ft: Optional[int]) -> str:
         """
         Determines FAA flight category (VFR, MVFR, IFR, LIFR).
         """
         vis = visibility_sm if visibility_sm is not None else 10.0
-        # If ceiling is None, sky is clear or only scattered/few clouds -> infinite ceiling
         ceil = ceiling_ft if ceiling_ft is not None else 99999
 
         if ceil < 500 or vis < 1.0:
@@ -117,19 +146,18 @@ class METARDecoder:
         dew_str = f"{dew_c:.1f}°C" if dew_c is not None else "N/A"
         spread_str = f"{(temp_c - dew_c):.1f}°C" if (temp_c is not None and dew_c is not None) else "N/A"
 
-        # Altimeter
-        altim = data.get("altim", 29.92)
-        if altim is None:
-            altim = 29.92
+        # Altimeter: parse exact inHg format (e.g. 29.93 inHg)
+        altim_inhg = cls.parse_altimeter_inhg(raw_text, data.get("altim"))
+        altim_hpa = int(round(altim_inhg / 0.029529983))
 
         # Flight category
-        category = data.get("fltcat")
+        category = data.get("fltcat") or data.get("fltCat")
         if not category:
             category = cls.determine_flight_category(vis_miles, ceiling_ft)
 
         # Pressure and Density Altitude
         if temp_c is not None:
-            pa, da = cls.calculate_density_altitude(elevation_ft, temp_c, altim)
+            pa, da = cls.calculate_density_altitude(elevation_ft, temp_c, altim_inhg)
         else:
             pa, da = int(elevation_ft), int(elevation_ft)
 
@@ -159,7 +187,9 @@ class METARDecoder:
             "temp_str": temp_str,
             "dew_str": dew_str,
             "temp_dew_spread": spread_str,
-            "altimeter": altim,
+            "altimeter_inhg": altim_inhg,
+            "altimeter_hpa": altim_hpa,
+            "altimeter_str": f"{altim_inhg:.2f} inHg ({altim_hpa} hPa)",
             "pressure_altitude": pa,
             "density_altitude": da,
             "carb_icing_risk": carb_risk,
@@ -167,34 +197,90 @@ class METARDecoder:
         }
 
     @classmethod
-    def decode_taf(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def decode_taf(cls, data: Dict[str, Any], origin_station: str = "") -> Dict[str, Any]:
         """
-        Parses TAF data for timeline trends.
+        Parses TAF data for timeline trends and decoded forecast blocks.
         """
         raw_text = data.get("rawTAF") or data.get("rawText", "")
         station = data.get("icaoId") or data.get("id", "UNKNOWN")
+        station_name = data.get("name", station)
         forecasts = data.get("fcsts", [])
         
         parsed_forecasts = []
         for fc in forecasts:
-            time_from = fc.get("timeFrom")
-            time_to = fc.get("timeTo")
-            fc_type = fc.get("fcstChange", "FM")
+            time_from_raw = fc.get("timeFrom")
+            time_to_raw = fc.get("timeTo")
+
+            # Convert epoch or ISO timestamps
+            from_str = ""
+            to_str = ""
+            if isinstance(time_from_raw, (int, float)):
+                dt_from = datetime.fromtimestamp(time_from_raw, tz=timezone.utc)
+                from_str = dt_from.strftime("%H:%MZ")
+            elif time_from_raw:
+                from_str = str(time_from_raw)[11:16] + "Z"
+
+            if isinstance(time_to_raw, (int, float)):
+                dt_to = datetime.fromtimestamp(time_to_raw, tz=timezone.utc)
+                to_str = dt_to.strftime("%H:%MZ")
+            elif time_to_raw:
+                to_str = str(time_to_raw)[11:16] + "Z"
+
+            time_window = f"{from_str} - {to_str}" if (from_str and to_str) else "Period"
+
+            fc_type = fc.get("fcstChange") or "INITIAL"
             wdir = fc.get("wdir")
             wspd = fc.get("wspd", 0)
-            vis = fc.get("visib", 10.0)
-            clouds = [f"{c.get('cover')} {c.get('base', '')}ft" for c in fc.get("clouds", [])]
+            wgst = fc.get("wgst")
+            vis = fc.get("visib", "6+")
+
+            # Winds string
+            if wspd == 0 or wspd is None:
+                wind_desc = "Calm"
+            elif wdir is None or wdir == "VRB":
+                wind_desc = f"VRB at {wspd}kt" + (f" G{wgst}kt" if wgst else "")
+            else:
+                wind_desc = f"{int(wdir):03d}° at {wspd}kt" + (f" G{wgst}kt" if wgst else "")
+
+            # Clouds & flight category calculation for forecast block
+            clouds_list = []
+            block_ceil = None
+            for c in fc.get("clouds", []):
+                cov = c.get("cover", "")
+                base = c.get("base")
+                if base is not None:
+                    clouds_list.append(f"{cov} {base}ft")
+                    if cov in ["BKN", "OVC", "VV"] and block_ceil is None:
+                        block_ceil = int(base)
+                else:
+                    clouds_list.append(cov)
+
+            clouds_desc = ", ".join(clouds_list) if clouds_list else "SKC"
+            
+            # Numeric vis
+            try:
+                num_vis = float(str(vis).replace("+", ""))
+            except ValueError:
+                num_vis = 10.0
+
+            block_cat = cls.determine_flight_category(num_vis, block_ceil)
+            block_emoji = cls.CATEGORY_EMOJIS.get(block_cat, "🟢")
+
             parsed_forecasts.append({
-                "time_from": time_from,
-                "time_to": time_to,
+                "time_window": time_window,
                 "type": fc_type,
-                "wind": f"{wdir}° at {wspd}kt" if wdir is not None else "VRB",
+                "wind": wind_desc,
                 "vis": f"{vis} SM",
-                "clouds": ", ".join(clouds) if clouds else "SKC"
+                "clouds": clouds_desc,
+                "category": block_cat,
+                "category_emoji": block_emoji
             })
 
         return {
             "station": station,
+            "station_name": station_name,
+            "is_nearby_fallback": (origin_station != "" and station.upper() != origin_station.upper()),
+            "origin_station": origin_station,
             "raw": raw_text,
             "forecasts": parsed_forecasts
         }

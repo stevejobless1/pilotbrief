@@ -18,6 +18,16 @@ def test_flight_categories():
     assert METARDecoder.determine_flight_category(0.5, 4000) == "LIFR"
     assert METARDecoder.determine_flight_category(10.0, 400) == "LIFR"
 
+def test_altimeter_inhg_parsing():
+    # US standard METAR A2993
+    raw_metar = "METAR KPAO 292347Z 30014KT 10SM SKC 25/11 A2993 RMK TEST"
+    altim = METARDecoder.parse_altimeter_inhg(raw_metar, 1013.6)
+    assert altim == 29.93
+
+    # Fallback to hPa conversion if no raw string
+    altim_conv = METARDecoder.parse_altimeter_inhg("", 1013.25)
+    assert altim_conv == 29.92
+
 def test_density_altitude_calculation():
     # Sea level at standard temp 15C and 29.92 inHg
     pa, da = METARDecoder.calculate_density_altitude(0, 15.0, 29.92)

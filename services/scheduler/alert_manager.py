@@ -65,7 +65,6 @@ class AlertManager:
 
     async def _check_and_dispatch_alerts(self, now: datetime):
         async with AsyncSessionLocal() as session:
-            # Query upcoming flights in next 8 hours
             stmt = select(FlightEvent).where(
                 and_(
                     FlightEvent.start_time > now,
@@ -83,11 +82,8 @@ class AlertManager:
                 intervals = user.get_alert_intervals()
                 minutes_until_start = (event.start_time - now).total_seconds() / 60.0
 
-                # Check each milestone interval
                 for interval in sorted(intervals, reverse=True):
-                    # Trigger condition: within a 10 minute grace window of the target interval
                     if minutes_until_start <= interval and minutes_until_start >= (interval - 10):
-                        # Verify if this alert was already sent
                         alert_stmt = select(AlertLog).where(
                             and_(
                                 AlertLog.event_id == event.event_id,
@@ -125,9 +121,6 @@ class AlertManager:
         start_time: datetime,
         interval_minutes: Optional[int] = None
     ) -> bool:
-        """
-        Compiles all aviation weather data, generates radar map, and sends DM to the pilot.
-        """
         if not is_user_allowed(discord_user_id):
             logger.warning(f"Unauthorized DM attempt blocked for user {discord_user_id}")
             return False
@@ -137,15 +130,15 @@ class AlertManager:
             logger.error(f"Could not find Discord user {discord_user_id}")
             return False
 
-        # 1. Fetch Departure METAR & TAF
+        # 1. Fetch Departure METAR & Best TAF
         dep_elev = airport_db.get_elevation(dep_icao)
         raw_metar_dep = await awc_client.get_metar(dep_icao)
         decoded_metar_dep = METARDecoder.decode_metar(raw_metar_dep, dep_elev) if raw_metar_dep else None
         
-        raw_taf_dep = await awc_client.get_taf(dep_icao)
-        decoded_taf_dep = METARDecoder.decode_taf(raw_taf_dep) if raw_taf_dep else None
+        raw_taf_dep, taf_station, taf_dist = await awc_client.get_best_taf(dep_icao)
+        decoded_taf_dep = METARDecoder.decode_taf(raw_taf_dep, origin_station=dep_icao) if raw_taf_dep else None
 
-        # 2. Fetch Destination METAR (if cross country)
+        # 2. Fetch Destination METAR
         decoded_metar_dest = None
         if dest_icao:
             dest_elev = airport_db.get_elevation(dest_icao)
@@ -153,7 +146,7 @@ class AlertManager:
             if raw_metar_dest:
                 decoded_metar_dest = METARDecoder.decode_metar(raw_metar_dest, dest_elev)
 
-        # 3. Runway Crosswind Calculations
+        # 3. Runway Crosswinds
         runway_evals = []
         if decoded_metar_dep:
             runway_evals = CrosswindCalculator.evaluate_airport_runways(
@@ -167,11 +160,7 @@ class AlertManager:
         async with AsyncSessionLocal() as session:
             minima = await session.get(PersonalMinima, discord_user_id)
         
-        minima_eval = MinimaChecker.evaluate(
-            decoded_metar_dep or {},
-            runway_evals,
-            minima
-        )
+        minima_eval = MinimaChecker.evaluate(decoded_metar_dep or {}, runway_evals, minima)
 
         # 5. SIGMETs & NOTAMs
         sigmets = await awc_client.get_sigmets()

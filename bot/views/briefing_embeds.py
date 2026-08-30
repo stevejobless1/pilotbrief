@@ -1,6 +1,6 @@
 ﻿import discord
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 class BriefingEmbedBuilder:
     @classmethod
@@ -20,9 +20,8 @@ class BriefingEmbedBuilder:
         milestone_label: str = "FLIGHT BRIEFING"
     ) -> discord.Embed:
         """
-        Constructs a Discord Embed containing aviation weather briefing.
+        Constructs a comprehensive, rich Discord Embed for student pilots.
         """
-        # Determine embed color based on departure flight category
         dep_cat = metar_dep.get("category", "VFR") if metar_dep else "VFR"
         dep_color = metar_dep.get("category_color", 0x2ECC71) if metar_dep else 0x2ECC71
         dep_emoji = metar_dep.get("category_emoji", "🟢") if metar_dep else "🟢"
@@ -31,18 +30,22 @@ class BriefingEmbedBuilder:
         
         embed = discord.Embed(
             title=f"✈️ {milestone_label} | {route_str}",
-            description=f"**Flight Event:** {event_title}\n**Departure Time:** <t:{int(start_time_utc.timestamp())}:F> (<t:{int(start_time_utc.timestamp())}:R>)\n**Assessment:** {minima_eval.get('decision', 'N/A')}",
+            description=(
+                f"**Flight Lesson:** {event_title}\n"
+                f"**Departure Time:** <t:{int(start_time_utc.timestamp())}:F> (<t:{int(start_time_utc.timestamp())}:R>)\n"
+                f"**Go / No-Go Assessment:** {minima_eval.get('decision', 'N/A')}"
+            ),
             color=dep_color,
             timestamp=datetime.utcnow()
         )
 
-        # 1. Student Minimums & Decision Alerts
+        # 1. Student Personal Minimums Callouts
         violations = minima_eval.get("violations", [])
         warnings = minima_eval.get("warnings", [])
         if violations:
             embed.add_field(
                 name="🛑 PERSONAL MINIMUMS EXCEEDED",
-                value="\n".join([f"• ⚠️ {v}" for v in violations]),
+                value="\n".join([f"• ⚠️ **{v}**" for v in violations]),
                 inline=False
             )
         elif warnings:
@@ -54,64 +57,91 @@ class BriefingEmbedBuilder:
 
         # 2. Departure METAR & Decoded Conditions
         if metar_dep:
+            pa = metar_dep.get("pressure_altitude", 0)
+            da = metar_dep.get("density_altitude", 0)
+            altim_str = f"{metar_dep.get('altimeter_inhg', 29.92):.2f} inHg ({metar_dep.get('altimeter_hpa', 1013)} hPa)"
+            
             dep_val = (
-                f"**Category:** {dep_emoji} **{metar_dep['category']}**\n"
-                f"**Winds:** `{metar_dep['wind_str']}`\n"
-                f"**Visibility:** `{metar_dep['visibility_str']}` | **Ceiling:** `{metar_dep['clouds_str']}`\n"
-                f"**Temp/Dew:** `{metar_dep['temp_str']} / {metar_dep['dew_str']}` (Spread: `{metar_dep['temp_dew_spread']}`)\n"
-                f"**Altimeter:** `{metar_dep['altimeter']:.2f} inHg` | **Density Alt:** `{metar_dep['density_altitude']} ft`\n"
-                f"**Carb Icing:** {metar_dep['carb_icing_risk']}\n"
+                f"**Flight Category:** {dep_emoji} **{metar_dep['category']}**\n"
+                f"**Surface Winds:** `{metar_dep['wind_str']}`\n"
+                f"**Visibility:** `{metar_dep['visibility_str']}` | **Clouds/Ceiling:** `{metar_dep['clouds_str']}`\n"
+                f"**Temp / Dewpoint:** `{metar_dep['temp_str']} / {metar_dep['dew_str']}` (Spread: `{metar_dep['temp_dew_spread']}`)\n"
+                f"**Altimeter:** `{altim_str}`\n"
+                f"**Density Altitude:** `{da:,} ft` (Pressure Alt: `{pa:,} ft`)\n"
+                f"**Carb Icing Risk:** {metar_dep['carb_icing_risk']}\n"
                 f"```{metar_dep['raw']}```"
             )
             embed.add_field(name=f"📍 Departure Weather ({departure_icao})", value=dep_val, inline=False)
         else:
             embed.add_field(name=f"📍 Departure Weather ({departure_icao})", value="*METAR currently unavailable.*", inline=False)
 
-        # 3. Runway Crosswind Breakdown
+        # 3. Runway Crosswind Component Analysis
         if runway_evals:
             rwy_lines = []
-            for i, r in enumerate(runway_evals[:3]):  # Top 3 most favorable runways
+            for i, r in enumerate(runway_evals):
                 pref_tag = "⭐ **FAVORABLE** " if i == 0 else ""
-                hw_tw = f"{r['headwind']}kt Headwind" if r['headwind'] > 0 else (f"{r['tailwind']}kt Tailwind" if r['tailwind'] > 0 else "Calm")
-                xw_str = f"{r['crosswind']}kt {r['crosswind_side']} X-Wind" + (f" (Gusts {r['crosswind_gust']}kt)" if r.get("crosswind_gust") else "")
-                rwy_lines.append(f"{pref_tag}**Rwy {r['runway_id']}** ({int(r['heading']):03d}°): {hw_tw} | {xw_str}")
+                hw_tw = f"{r['headwind']}kt Headwind" if r['headwind'] > 0 else (f"{r['tailwind']}kt Tailwind" if r['tailwind'] > 0 else "0kt Direct X-Wind")
+                xw_str = f"{r['crosswind']}kt {r['crosswind_side']} X-Wind"
+                if r.get("crosswind_gust"):
+                    xw_str += f" (Gusts to {r['crosswind_gust']}kt)"
+                rwy_lines.append(f"{pref_tag}**Rwy {r['runway_id']}** ({int(r['heading']):03d}°): {hw_tw} • {xw_str}")
             embed.add_field(name="🛫 Runway & Crosswind Analysis", value="\n".join(rwy_lines), inline=False)
 
-        # 4. Destination METAR (if cross country)
+        # 4. Destination METAR (if cross-country)
         if destination_icao and metar_dest:
             dest_emoji = metar_dest.get("category_emoji", "🟢")
+            dest_altim = f"{metar_dest.get('altimeter_inhg', 29.92):.2f} inHg"
             dest_val = (
-                f"**Category:** {dest_emoji} **{metar_dest['category']}** | **Winds:** `{metar_dest['wind_str']}`\n"
+                f"**Flight Category:** {dest_emoji} **{metar_dest['category']}** | **Winds:** `{metar_dest['wind_str']}`\n"
                 f"**Visibility:** `{metar_dest['visibility_str']}` | **Clouds:** `{metar_dest['clouds_str']}`\n"
+                f"**Altimeter:** `{dest_altim}` | **Density Alt:** `{metar_dest.get('density_altitude', 0):,} ft`\n"
                 f"```{metar_dest['raw']}```"
             )
             embed.add_field(name=f"🏁 Destination Weather ({destination_icao})", value=dest_val, inline=False)
 
-        # 5. TAF Forecast
-        if taf_dep and taf_dep.get("forecasts"):
-            taf_lines = []
-            for fc in taf_dep["forecasts"][:3]:
-                taf_lines.append(f"• `{fc['type']}`: Wind {fc['wind']}, Vis {fc['vis']}, Clouds: {fc['clouds']}")
-            embed.add_field(name=f"🔮 TAF Forecast Trend ({departure_icao})", value="\n".join(taf_lines) or "No active changes", inline=False)
+        # 5. Terminal Aerodrome Forecast (TAF)
+        if taf_dep:
+            station_lbl = taf_dep.get("station", departure_icao)
+            is_fallback = taf_dep.get("is_nearby_fallback", False)
+            taf_header = f"🔮 Terminal Aerodrome Forecast ({station_lbl}" + (f" - Nearby station for {departure_icao})" if is_fallback else ")")
+            
+            taf_body = []
+            if taf_dep.get("forecasts"):
+                for fc in taf_dep["forecasts"][:4]:
+                    fc_type = f"**{fc['type']}**" if fc['type'] != "INITIAL" else "**INITIAL**"
+                    taf_body.append(
+                        f"• {fc['category_emoji']} `{fc['time_window']}` {fc_type}: Wind `{fc['wind']}`, Vis `{fc['vis']}`, Clouds: `{fc['clouds']}`"
+                    )
+            
+            raw_taf_snippet = f"```{taf_dep.get('raw', '')}```"
+            embed.add_field(
+                name=taf_header,
+                value=("\n".join(taf_body) if taf_body else "No forecast periods available") + f"\n{raw_taf_snippet}",
+                inline=False
+            )
+        else:
+            embed.add_field(name=f"🔮 Terminal Aerodrome Forecast ({departure_icao})", value="*No TAF issued for this station or nearby reporting stations.*", inline=False)
 
-        # 6. Active SIGMETs / Convective Warnings
+        # 6. Active SIGMETs & AIRMETs in Region
         if sigmets:
             sig_lines = []
-            for s in sigmets[:3]:
+            for s in sigmets[:4]:
                 props = s.get("properties", {})
                 hazard = props.get("hazard", "Hazard")
-                top = props.get("top", "N/A")
-                sig_lines.append(f"• ⚠️ **{hazard}** (Tops: {top}ft)")
-            embed.add_field(name="⛈️ Active SIGMETs in Region", value="\n".join(sig_lines), inline=False)
+                top = props.get("altitudeHi1") or props.get("top")
+                top_str = f" (Tops: FL{int(top/100)})" if top else ""
+                sig_lines.append(f"• ⚠️ **{hazard}**{top_str}")
+            if sig_lines:
+                embed.add_field(name="⛈️ Active SIGMETs / AIRMETs in Region", value="\n".join(sig_lines), inline=False)
 
         # 7. Notable NOTAM Highlights
         if notams:
             notam_highlights = [n for n in notams if n["priority"] in ["CRITICAL", "HIGH"]]
             if notam_highlights:
-                n_lines = [f"• [{n['category']}] {n['text'][:120]}..." for n in notam_highlights[:3]]
+                n_lines = [f"• [{n['category']}] {n['text'][:130]}..." for n in notam_highlights[:3]]
                 embed.add_field(name="📢 Notable NOTAMs", value="\n".join(n_lines), inline=False)
 
-        embed.set_footer(text="PilotBrief • Safety First • Verify official briefing via 1-800-WX-BRIEF / Leidos")
+        embed.set_footer(text="PilotBrief • Student Pilot Briefing System • Verify official briefing via 1-800-WX-BRIEF / Leidos")
         return embed
 
 class BriefingView(discord.ui.View):

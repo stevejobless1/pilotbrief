@@ -32,13 +32,13 @@ class FlightCommands(commands.Cog):
         dep_icao = departure.strip().upper()
         dest_icao = destination.strip().upper() if destination else None
 
-        # 1. Fetch Departure METAR & TAF
+        # 1. Fetch Departure METAR & Best TAF
         dep_elev = airport_db.get_elevation(dep_icao)
         raw_metar_dep = await awc_client.get_metar(dep_icao)
         decoded_metar_dep = METARDecoder.decode_metar(raw_metar_dep, dep_elev) if raw_metar_dep else None
 
-        raw_taf_dep = await awc_client.get_taf(dep_icao)
-        decoded_taf_dep = METARDecoder.decode_taf(raw_taf_dep) if raw_taf_dep else None
+        raw_taf_dep, taf_station, taf_dist = await awc_client.get_best_taf(dep_icao)
+        decoded_taf_dep = METARDecoder.decode_taf(raw_taf_dep, origin_station=dep_icao) if raw_taf_dep else None
 
         # 2. Fetch Destination METAR
         decoded_metar_dest = None
@@ -131,7 +131,6 @@ class FlightCommands(commands.Cog):
             )
             return
 
-        # Run briefing for upcoming flight
         dep_icao = event.departure_icao
         dest_icao = event.destination_icao
 
@@ -139,8 +138,8 @@ class FlightCommands(commands.Cog):
         raw_metar_dep = await awc_client.get_metar(dep_icao)
         decoded_metar_dep = METARDecoder.decode_metar(raw_metar_dep, dep_elev) if raw_metar_dep else None
 
-        raw_taf_dep = await awc_client.get_taf(dep_icao)
-        decoded_taf_dep = METARDecoder.decode_taf(raw_taf_dep) if raw_taf_dep else None
+        raw_taf_dep, taf_station, taf_dist = await awc_client.get_best_taf(dep_icao)
+        decoded_taf_dep = METARDecoder.decode_taf(raw_taf_dep, origin_station=dep_icao) if raw_taf_dep else None
 
         decoded_metar_dest = None
         if dest_icao:
