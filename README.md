@@ -1,4 +1,4 @@
-﻿# PilotBrief ✈️
+# PilotBrief ✈️
 **Aviation Weather & Automated Pre-Flight Briefing Discord Bot for Student Pilots**
 
 PilotBrief connects to your Google Calendar, tracks upcoming flight lessons, and automatically sends comprehensive, progressive pre-flight briefings via Discord DM at configured intervals (**6h, 3h, 2h, 1h, and 15m** before departure).
@@ -25,6 +25,13 @@ PilotBrief connects to your Google Calendar, tracks upcoming flight lessons, and
   - Flags safety warnings if surface winds, gusts, crosswinds, or cloud ceilings violate your minimums.
 - **Visual Radar & Airspace Overview Map**:
   - Generates high-resolution PNG maps with route vectors, airport markers, real-time composite NEXRAD precipitation radar, and active SIGMET/AIRMET polygon boundary overlays.
+- **Interactive Live Web Aviation Deck (`https://brief.xia.best`)**:
+  - Live pan & zoom FAA VFR Sectional Chart tiles (`ArcGIS`).
+  - Real-time composite NEXRAD precipitation radar layer with opacity control.
+  - Active SIGMET & AIRMET hazard polygons (Convective ⚡, Turbulence 💨, Icing ❄️, Mountain Obscuration ⛰️).
+  - ForeFlight-style color-coded METAR station dots (🟢 VFR, 🔵 MVFR, 🔴 IFR, 🟣 LIFR) with clickable decoded briefing popups.
+  - Airport route planner with distance NM, magnetic course, and concentric 25/50/75/100 NM range rings.
+  - Live runway crosswind component calculator highlighting optimal runway.
 - **Strict Whitelist Security**:
   - Built-in authorization guard restricted strictly to authorized Discord User ID (`454870771039469568`).
 

@@ -1,4 +1,4 @@
-﻿FROM python:3.11-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -26,5 +26,7 @@ RUN mkdir -p /app/data
 
 # Default volumes
 VOLUME ["/app/data"]
+
+EXPOSE 8000
 
 CMD ["python", "main.py"]

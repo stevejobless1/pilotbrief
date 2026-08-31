@@ -1,4 +1,4 @@
-﻿version: '3.8'
+version: '3.8'
 
 services:
   pilotbrief:
@@ -11,6 +11,9 @@ services:
       - HOME_ICAO=${HOME_ICAO:-KPAO}
       - ICAL_URL=${ICAL_URL:-}
       - DATABASE_URL=sqlite+aiosqlite:////app/data/pilotbrief.db
+      - WEB_PORT=8000
+    ports:
+      - "8000:8000"
     volumes:
       - pilotbrief-data:/app/data
 

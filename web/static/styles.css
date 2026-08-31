@@ -1,0 +1,122 @@
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #10151C;
+}
+::-webkit-scrollbar-thumb {
+  background: #283445;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3B82F6;
+}
+
+/* Leaflet Container & Dark Mode styling */
+.leaflet-container {
+  background: #10151C !important;
+  font-family: inherit;
+}
+
+.leaflet-bar {
+  border: 1px solid #283445 !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6) !important;
+}
+
+.leaflet-bar a {
+  background-color: #18202A !important;
+  color: #E2E8F0 !important;
+  border-bottom: 1px solid #283445 !important;
+  transition: all 0.15s ease;
+}
+
+.leaflet-bar a:hover {
+  background-color: #242E3D !important;
+  color: #60A5FA !important;
+}
+
+/* Leaflet Popup Styling */
+.leaflet-popup-content-wrapper {
+  background: #18202A !important;
+  color: #E2E8F0 !important;
+  border: 1px solid #283445 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.8) !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px !important;
+  line-height: 1.4 !important;
+}
+
+.leaflet-popup-tip {
+  background: #18202A !important;
+  border: 1px solid #283445 !important;
+}
+
+.leaflet-popup-close-button {
+  color: #94A3B8 !important;
+  padding: 6px 10px !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #F87171 !important;
+}
+
+/* Custom ForeFlight METAR Station Dot */
+.metar-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.metar-dot:hover {
+  transform: scale(1.4);
+  z-index: 1000 !important;
+}
+
+.metar-dot.vfr {
+  background-color: #00B894;
+  box-shadow: 0 0 10px rgba(0, 184, 148, 0.8);
+}
+
+.metar-dot.mvfr {
+  background-color: #0984E3;
+  box-shadow: 0 0 10px rgba(9, 132, 227, 0.8);
+}
+
+.metar-dot.ifr {
+  background-color: #D63031;
+  box-shadow: 0 0 10px rgba(214, 48, 49, 0.8);
+}
+
+.metar-dot.lifr {
+  background-color: #6C5CE7;
+  box-shadow: 0 0 10px rgba(108, 92, 231, 0.8);
+}
+
+/* Station Label Tooltip */
+.leaflet-tooltip-metar {
+  background-color: rgba(16, 21, 28, 0.85) !important;
+  color: #FFFFFF !important;
+  border: 1px solid #283445 !important;
+  border-radius: 6px !important;
+  font-family: monospace !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  padding: 2px 5px !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4) !important;
+}
+
+.leaflet-tooltip-metar:before {
+  border-top-color: rgba(16, 21, 28, 0.85) !important;
+}

@@ -1,4 +1,4 @@
-﻿from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 from typing import List, Union, Any
 import json
@@ -30,6 +30,11 @@ class Settings(BaseSettings):
 
     # NOAA AWC API Base URL
     AWC_BASE_URL: str = Field(default="https://aviationweather.gov/api/data", description="NOAA AWC API base")
+
+    # Web Dashboard Settings
+    WEB_HOST: str = Field(default="0.0.0.0", description="Web server bind host")
+    WEB_PORT: int = Field(default=8000, description="Web server bind port")
+    WEB_ENABLED: bool = Field(default=True, description="Enable embedded web dashboard server")
 
     @field_validator("ALLOWED_USER_IDS", mode="before")
     @classmethod
