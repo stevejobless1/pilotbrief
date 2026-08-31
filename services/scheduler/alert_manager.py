@@ -2,16 +2,17 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 import discord
 from sqlalchemy import select, and_
 
 from database.session import AsyncSessionLocal
-from database.models import UserSettings, FlightEvent, AlertLog, PersonalMinima
+from database.models import UserSettings, FlightEvent, AlertLog, PersonalMinima, ConvectiveAlertLog
 from services.weather.awc_client import awc_client
 from services.weather.decoder import METARDecoder
 from services.weather.crosswind import CrosswindCalculator, airport_db
 from services.weather.minima_checker import MinimaChecker
+from services.weather.sigmet_monitor import sigmet_monitor
 from services.notam.notam_client import notam_client
 from services.radar.map_generator import radar_map_generator
 from services.calendar.ical_service import calendar_service
@@ -46,12 +47,17 @@ class AlertManager:
             try:
                 now = datetime.utcnow()
 
+                # 1. Periodic calendar sync (every 5 mins)
                 if (now - last_cal_sync).total_seconds() >= settings.CALENDAR_POLL_INTERVAL_SECONDS:
                     for uid in settings.ALLOWED_USER_IDS:
                         await calendar_service.sync_user_calendar(uid)
                     last_cal_sync = now
 
+                # 2. Check and dispatch pending milestone countdown alerts (6h, 3h, 2h, 1h, 15m)
                 await self._check_and_dispatch_alerts(now)
+
+                # 3. Constantly monitor real-time Convective SIGMETs over departure/home airports
+                await self._check_convective_sigmet_alerts(now)
 
             except asyncio.CancelledError:
                 break
@@ -59,6 +65,117 @@ class AlertManager:
                 logger.error(f"Error in AlertManager loop: {e}", exc_info=True)
 
             await asyncio.sleep(60)
+
+    async def _check_convective_sigmet_alerts(self, now: datetime):
+        """
+        Continuously monitors active Convective SIGMETs and instantly alerts
+        the user if any severe convective polygon appears over their departure or home airport.
+        """
+        sigmets = await awc_client.get_sigmets()
+        if not sigmets:
+            return
+
+        async with AsyncSessionLocal() as session:
+            for uid in settings.ALLOWED_USER_IDS:
+                user = await session.get(UserSettings, uid)
+                if not user:
+                    continue
+
+                # Collect airports of active interest: home airport + scheduled flights in next 24h
+                airports_to_monitor: Set[str] = set()
+                if user.home_icao:
+                    airports_to_monitor.add(user.home_icao.upper())
+
+                stmt = select(FlightEvent).where(
+                    and_(
+                        FlightEvent.discord_user_id == uid,
+                        FlightEvent.start_time > now,
+                        FlightEvent.start_time <= now + timedelta(hours=24)
+                    )
+                )
+                events = (await session.execute(stmt)).scalars().all()
+                for ev in events:
+                    if ev.departure_icao:
+                        airports_to_monitor.add(ev.departure_icao.upper())
+                    if ev.destination_icao:
+                        airports_to_monitor.add(ev.destination_icao.upper())
+
+                # Check each airport for convective hazards
+                for icao in airports_to_monitor:
+                    hazards = sigmet_monitor.evaluate_airport_convective_hazards(icao, sigmets, proximity_nm=20.0)
+                    for h in hazards:
+                        sig_id = h["sigmet_id"]
+
+                        # Deduplicate: check if already alerted
+                        log_stmt = select(ConvectiveAlertLog).where(
+                            and_(
+                                ConvectiveAlertLog.sigmet_id == sig_id,
+                                ConvectiveAlertLog.discord_user_id == uid,
+                                ConvectiveAlertLog.icao == icao
+                            )
+                        )
+                        already_alerted = (await session.execute(log_stmt)).scalar_one_or_none()
+                        if not already_alerted:
+                            logger.warning(f"⚡ Convective SIGMET {sig_id} detected over {icao}! Dispatching urgent alert to user {uid}")
+                            sent = await self.send_convective_sigmet_alert(uid, icao, h, sigmets)
+                            if sent:
+                                new_log = ConvectiveAlertLog(
+                                    sigmet_id=sig_id,
+                                    discord_user_id=uid,
+                                    icao=icao,
+                                    hazard=h.get("hazard", "CONVECTIVE"),
+                                    sent_at=datetime.utcnow()
+                                )
+                                session.add(new_log)
+                                await session.commit()
+
+    async def send_convective_sigmet_alert(
+        self,
+        discord_user_id: int,
+        icao: str,
+        hazard_info: Dict[str, Any],
+        sigmets: List[Dict[str, Any]]
+    ) -> bool:
+        if not is_user_allowed(discord_user_id):
+            return False
+
+        try:
+            user_obj = await self.bot.fetch_user(discord_user_id)
+            if not user_obj:
+                return False
+
+            # Generate ForeFlight Sectional Map highlighting the convective polygon
+            map_bytes = None
+            try:
+                map_bytes = await radar_map_generator.generate_sectional_overview_map(
+                    dep_icao=icao,
+                    dep_fltcat="IFR",
+                    sigmets=sigmets,
+                    radius_nm=85.0
+                )
+            except Exception as e:
+                logger.error(f"Error generating map for convective alert: {e}")
+
+            embed = BriefingEmbedBuilder.build_convective_alert_embed(icao, hazard_info)
+            file = discord.File(io.BytesIO(map_bytes), filename="convective_sigmet.png") if map_bytes else None
+            if file:
+                embed.set_image(url="attachment://convective_sigmet.png")
+
+            if file:
+                await user_obj.send(
+                    content=f"🚨 **URGENT AVIATION WEATHER ALERT**: Active Convective SIGMET affecting **{icao}**!",
+                    embed=embed,
+                    file=file
+                )
+            else:
+                await user_obj.send(
+                    content=f"🚨 **URGENT AVIATION WEATHER ALERT**: Active Convective SIGMET affecting **{icao}**!",
+                    embed=embed
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to deliver Convective SIGMET DM alert: {e}")
+            return False
 
     async def _check_and_dispatch_alerts(self, now: datetime):
         async with AsyncSessionLocal() as session:
@@ -119,12 +236,10 @@ class AlertManager:
         interval_minutes: Optional[int] = None
     ) -> bool:
         if not is_user_allowed(discord_user_id):
-            logger.warning(f"Unauthorized DM attempt blocked for user {discord_user_id}")
             return False
 
         user_obj = await self.bot.fetch_user(discord_user_id)
         if not user_obj:
-            logger.error(f"Could not find Discord user {discord_user_id}")
             return False
 
         # 1. Fetch Departure METAR & Best TAF

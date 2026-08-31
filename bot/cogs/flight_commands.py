@@ -13,6 +13,7 @@ from services.weather.awc_client import awc_client
 from services.weather.decoder import METARDecoder
 from services.weather.crosswind import CrosswindCalculator, airport_db
 from services.weather.minima_checker import MinimaChecker
+from services.weather.sigmet_monitor import sigmet_monitor
 from services.notam.notam_client import notam_client
 from services.radar.map_generator import radar_map_generator
 from services.calendar.ical_service import calendar_service
@@ -140,6 +141,52 @@ class FlightCommands(commands.Cog):
         except Exception as e:
             logger.error(f"Error handling /flight brief command: {e}", exc_info=True)
             await interaction.followup.send(f"⚠️ Error generating flight briefing: `{str(e)}`", ephemeral=True)
+
+    @flight_group.command(name="sigmet", description="Check active Convective SIGMETs and thunderstorm hazards over any airport")
+    @app_commands.describe(airport="Airport ICAO code (e.g. KPAO, KRYN, KSFO)")
+    async def check_sigmet(self, interaction: discord.Interaction, airport: str = None):
+        await interaction.response.defer(thinking=True)
+        try:
+            if not airport:
+                async with AsyncSessionLocal() as session:
+                    user = await session.get(UserSettings, interaction.user.id)
+                    icao = user.home_icao.upper() if user and user.home_icao else "KPAO"
+            else:
+                icao = airport.strip().upper()
+
+            sigmets = await awc_client.get_sigmets()
+            hazards = sigmet_monitor.evaluate_airport_convective_hazards(icao, sigmets, proximity_nm=30.0)
+
+            if not hazards:
+                embed = discord.Embed(
+                    title=f"✅ Airspace Clear: No Convective SIGMETs over {icao}",
+                    description=f"There are currently **no active Convective SIGMETs or severe thunderstorm areas** within 30 NM of **{icao}**.",
+                    color=0x2ECC71,
+                    timestamp=datetime.utcnow()
+                )
+                embed.set_footer(text="PilotBrief Airspace Monitor • Always verify radar & official briefing")
+                await interaction.followup.send(embed=embed)
+                return
+
+            # If hazard found
+            h = hazards[0]
+            embed = BriefingEmbedBuilder.build_convective_alert_embed(icao, h)
+            map_bytes = await radar_map_generator.generate_sectional_overview_map(
+                dep_icao=icao,
+                dep_fltcat="IFR",
+                sigmets=sigmets,
+                radius_nm=85.0
+            )
+
+            file = discord.File(io.BytesIO(map_bytes), filename="convective_sigmet.png") if map_bytes else None
+            if file:
+                embed.set_image(url="attachment://convective_sigmet.png")
+                await interaction.followup.send(embed=embed, file=file)
+            else:
+                await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error checking SIGMETs: {e}", exc_info=True)
+            await interaction.followup.send(f"⚠️ Error checking SIGMETs: `{e}`", ephemeral=True)
 
     @flight_group.command(name="next", description="Generate a briefing for your next upcoming scheduled flight lesson")
     async def next_flight(self, interaction: discord.Interaction):

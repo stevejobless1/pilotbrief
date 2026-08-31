@@ -145,6 +145,54 @@ class BriefingEmbedBuilder:
         embed.set_footer(text="PilotBrief • Student Pilot Briefing System • Verify official briefing via 1-800-WX-BRIEF / Leidos")
         return embed
 
+    @classmethod
+    def build_convective_alert_embed(
+        cls,
+        icao: str,
+        hazard_info: Dict[str, Any]
+    ) -> discord.Embed:
+        """
+        Constructs an urgent, high-priority Convective SIGMET alert embed.
+        """
+        is_overhead = hazard_info.get("is_overhead", True)
+        dist_nm = hazard_info.get("distance_nm", 0.0)
+        pos_str = "🚨 **DIRECTLY OVER AIRPORT**" if is_overhead else f"⚠️ **{dist_nm:.1f} NM from Airport Boundary**"
+        tops = hazard_info.get("top_fl", "FL450+")
+        raw_text = hazard_info.get("raw_text", "N/A")
+
+        embed = discord.Embed(
+            title=f"⚡ URGENT: CONVECTIVE SIGMET OVER {icao}",
+            description=(
+                f"A **Convective SIGMET** has been issued by NOAA AWC affecting **{icao}**.\n\n"
+                f"**Position:** {pos_str}\n"
+                f"**Storm Tops:** `{tops}`\n"
+                f"**Status:** 🛑 **NO-GO FOR VFR STUDENT FLIGHTS**\n"
+            ),
+            color=0xD63031,  # Emergency Red
+            timestamp=datetime.utcnow()
+        )
+
+        embed.add_field(
+            name="🌪️ Associated Severe Hazards",
+            value=(
+                "• **Severe / Extreme Turbulence**\n"
+                "• **Microbursts & Low-Level Wind Shear**\n"
+                "• **Hail & Torrential Precipitation**\n"
+                "• **Severe Icing & Lightning**"
+            ),
+            inline=False
+        )
+
+        if raw_text:
+            embed.add_field(
+                name="📋 Official NOAA SIGMET Bulletin",
+                value=f"```{raw_text[:800]}```",
+                inline=False
+            )
+
+        embed.set_footer(text="PilotBrief Real-Time Airspace Monitor • Check radar & official briefing prior to flight")
+        return embed
+
 class BriefingView(discord.ui.View):
     def __init__(
         self,
