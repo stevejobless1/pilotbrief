@@ -41,8 +41,81 @@ def test_density_altitude_calculation():
 def test_carb_icing_assessment():
     # High risk: 15C temp, 14C dewpoint (spread = 1C)
     risk = METARDecoder.assess_carb_icing_risk(15.0, 14.0)
-    assert "HIGH" in risk
+    assert "SERIOUS" in risk or "HIGH" in risk
 
-    # Low risk: 20C temp, 0C dewpoint (spread = 20C)
-    low_risk = METARDecoder.assess_carb_icing_risk(20.0, 0.0)
-    assert "LOW" in low_risk
+    # Low risk: 10C temp, 0C dewpoint (rel_hum = 50%)
+    low_risk = METARDecoder.assess_carb_icing_risk(10.0, 0.0)
+    assert "Low" in low_risk or "LOW" in low_risk
+
+    # Unlikely: 25C temp, 0C dewpoint
+    unlikely = METARDecoder.assess_carb_icing_risk(25.0, 0.0)
+    assert "Unlikely" in unlikely
+
+def test_decode_taf_periods():
+    # Real AWC JSON response structure for KTUS
+    taf_payload = {
+        "icaoId": "KTUS",
+        "rawTAF": "TAF KTUS 302327Z 3100/3124 26008KT P6SM BKN100 OVC200 FM310200 20010G19KT P6SM VCSH BKN100 OVC200 FM310500 17009KT P6SM VCTS BKN080CB OVC150 FM310900 14007KT P6SM BKN100 OVC150",
+        "fcsts": [
+            {
+                "timeFrom": 1788134400,
+                "timeTo": 1788141600,
+                "fcstChange": None,
+                "wdir": 260,
+                "wspd": 8,
+                "visib": "6+",
+                "clouds": [{"cover": "BKN", "base": 10000}, {"cover": "OVC", "base": 20000}]
+            },
+            {
+                "timeFrom": 1788141600,
+                "timeTo": 1788152400,
+                "fcstChange": "FM",
+                "wdir": 200,
+                "wspd": 10,
+                "wgst": 19,
+                "visib": "6+",
+                "wxString": "VCSH",
+                "clouds": [{"cover": "BKN", "base": 10000}, {"cover": "OVC", "base": 20000}]
+            },
+            {
+                "timeFrom": 1788152400,
+                "timeTo": 1788166800,
+                "fcstChange": "FM",
+                "wdir": 170,
+                "wspd": 9,
+                "visib": "6+",
+                "wxString": "VCTS",
+                "clouds": [{"cover": "BKN", "base": 8000, "type": "CB"}, {"cover": "OVC", "base": 15000}]
+            },
+            {
+                "timeFrom": 1788166800,
+                "timeTo": 1788220800,
+                "fcstChange": "FM",
+                "wdir": 140,
+                "wspd": 7,
+                "visib": "6+",
+                "clouds": [{"cover": "BKN", "base": 10000}, {"cover": "OVC", "base": 15000}]
+            }
+        ]
+    }
+
+    decoded = METARDecoder.decode_taf(taf_payload, origin_station="KRYN")
+    assert decoded["station"] == "KTUS"
+    assert decoded["is_nearby_fallback"] is True
+    assert len(decoded["forecasts"]) == 4
+
+    # Verify first period
+    p1 = decoded["forecasts"][0]
+    assert p1["type"] == "INITIAL"
+    assert "260" in p1["wind"]
+    assert p1["category"] == "VFR"
+
+    # Verify gusts in second period
+    p2 = decoded["forecasts"][1]
+    assert "G19kt" in p2["wind"]
+    assert p2["weather"] == "VCSH"
+
+    # Verify CB cloud and VCTS weather in third period
+    p3 = decoded["forecasts"][2]
+    assert p3["weather"] == "VCTS"
+    assert "CB" in p3["clouds"]

@@ -1,17 +1,17 @@
 ﻿import re
-import math
 import logging
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
 class METARDecoder:
+    # Flight Category Color Palette
     CATEGORY_COLORS = {
-        "VFR": 0x2ECC71,   # Green
-        "MVFR": 0x3498DB,  # Blue / Marginal
-        "IFR": 0xE74C3C,   # Red
-        "LIFR": 0x9B59B6   # Magenta / Purple
+        "VFR": 0x00B894,   # Vivid Green
+        "MVFR": 0x0984E3,  # Blue
+        "IFR": 0xD63031,   # Red
+        "LIFR": 0x6C5CE7   # Purple
     }
 
     CATEGORY_EMOJIS = {
@@ -22,31 +22,28 @@ class METARDecoder:
     }
 
     @staticmethod
-    def parse_altimeter_inhg(raw_ob: str, raw_altim_val: Optional[Union[float, int, str]]) -> float:
+    def parse_altimeter_inhg(raw_metar: str, altim_field: Optional[Any] = None) -> float:
         """
-        Extracts altimeter in inches of mercury (inHg, e.g. 29.92).
-        Prioritizes raw METAR string 'A2992' -> 29.92, or converts hPa/mb to inHg.
+        Parses altimeter setting strictly prioritizing US FAA inHg format (e.g. A2992 -> 29.92).
+        Falls back to converting millibars / hPa if only metric is present.
         """
-        if raw_ob:
-            # Look for standard US A2992 or A3012 format
-            match = re.search(r'\bA(2[7-9]\d{2}|3[0-1]\d{2})\b', raw_ob)
+        if raw_metar:
+            match = re.search(r"\bA(\d{2})(\d{2})\b", raw_metar)
             if match:
-                digits = match.group(1)
-                return float(f"{digits[:2]}.{digits[2:]}")
+                return float(f"{match.group(1)}.{match.group(2)}")
             
-            # Look for QNH format Q1013
-            q_match = re.search(r'\bQ(\d{4})\b', raw_ob)
-            if q_match:
-                hpa = float(q_match.group(1))
-                return round(hpa * 0.029529983, 2)
+            # QNH format (e.g. Q1013 -> 29.92 inHg)
+            qnh_match = re.search(r"\bQ(\d{4})\b", raw_metar)
+            if qnh_match:
+                qnh_hpa = float(qnh_match.group(1))
+                return round(qnh_hpa * 0.029529983, 2)
 
-        if raw_altim_val is not None:
+        if altim_field is not None:
             try:
-                val = float(raw_altim_val)
-                # If greater than 100, it is in hPa (e.g. 1013.6 mb)
-                if val > 100:
+                val = float(altim_field)
+                if val > 800:
                     return round(val * 0.029529983, 2)
-                else:
+                elif val > 20:
                     return round(val, 2)
             except (ValueError, TypeError):
                 pass
@@ -54,12 +51,33 @@ class METARDecoder:
         return 29.92
 
     @staticmethod
+    def calculate_density_altitude(
+        elevation_ft: float,
+        temp_c: float,
+        altimeter_inhg: float
+    ) -> Tuple[int, int]:
+        """
+        Calculates Pressure Altitude and Density Altitude.
+        PA = Elevation + (29.92 - Altimeter) * 1000
+        Standard Temp (ISA) = 15 - (2 * (PA / 1000))
+        DA = PA + 120 * (OAT - ISA_Temp)
+        """
+        pressure_altitude = elevation_ft + (29.92 - altimeter_inhg) * 1000.0
+        isa_temp = 15.0 - (1.98 * (pressure_altitude / 1000.0))
+        density_altitude = pressure_altitude + (118.8 * (temp_c - isa_temp))
+        return int(round(pressure_altitude)), int(round(density_altitude))
+
+    @staticmethod
     def determine_flight_category(visibility_sm: Optional[float], ceiling_ft: Optional[int]) -> str:
         """
-        Determines FAA flight category (VFR, MVFR, IFR, LIFR).
+        Determines FAA Flight Category:
+        - LIFR: Ceiling < 500 ft and/or Visibility < 1 SM
+        - IFR:  Ceiling 500 to < 1000 ft and/or Visibility 1 to < 3 SM
+        - MVFR: Ceiling 1000 to 3000 ft and/or Visibility 3 to 5 SM
+        - VFR:  Ceiling > 3000 ft and Visibility > 5 SM
         """
         vis = visibility_sm if visibility_sm is not None else 10.0
-        ceil = ceiling_ft if ceiling_ft is not None else 99999
+        ceil = ceiling_ft if ceiling_ft is not None else 10000
 
         if ceil < 500 or vis < 1.0:
             return "LIFR"
@@ -71,81 +89,59 @@ class METARDecoder:
             return "VFR"
 
     @staticmethod
-    def calculate_density_altitude(elevation_ft: float, temp_c: float, altim_inhg: float) -> Tuple[int, int]:
+    def assess_carb_icing_risk(temp_c: float, dew_c: float) -> str:
         """
-        Calculates Pressure Altitude and Density Altitude.
-        Returns: (pressure_altitude, density_altitude) in feet.
+        Assesses carburetor icing risk based on standard FAA / Transport Canada charts.
         """
-        pa = elevation_ft + (29.92 - altim_inhg) * 1000.0
-        t_std = 15.0 - 2.0 * (pa / 1000.0)
-        da = pa + 120.0 * (temp_c - t_std)
-        return int(round(pa)), int(round(da))
-
-    @staticmethod
-    def assess_carb_icing_risk(temp_c: float, dewpoint_c: float) -> str:
-        """
-        Estimates FAA Carburetor Icing risk based on temperature and dewpoint spread.
-        """
-        rh_spread = temp_c - dewpoint_c
-        if -10 <= temp_c <= 25 and rh_spread <= 3:
-            return "⚠️ HIGH RISK (Glide & Cruise Power)"
-        elif -15 <= temp_c <= 30 and rh_spread <= 7:
-            return "⚠️ MODERATE RISK (Glide Power)"
-        else:
-            return "✅ LOW RISK"
+        rel_hum = 100.0 - 5.0 * (temp_c - dew_c)
+        if -10 <= temp_c <= 25 and rel_hum >= 80:
+            return "🔴 **SERIOUS RISK** at glide & cruise power"
+        elif -15 <= temp_c <= 30 and rel_hum >= 60:
+            return "🟡 **MODERATE RISK** at cruise (Serious at glide)"
+        elif -20 <= temp_c <= 35 and rel_hum >= 40:
+            return "ℹ️ Low risk (Light at glide power)"
+        return "🟢 Risk Unlikely"
 
     @classmethod
     def decode_metar(cls, data: Dict[str, Any], elevation_ft: float = 0.0) -> Dict[str, Any]:
         """
-        Parses AWC METAR JSON structure into decoded student-friendly format.
+        Decodes NOAA AWC JSON METAR format into a structured aviation payload.
         """
         raw_text = data.get("rawOb") or data.get("rawText", "")
         station = data.get("icaoId") or data.get("id", "UNKNOWN")
-        obs_time = data.get("obsTime") or data.get("reportTime", "")
+        obs_time = data.get("obsTime")
 
-        # Wind
+        # Parse Winds
         raw_wdir = data.get("wdir")
-        raw_wspd = data.get("wspd", 0)
-        raw_wgst = data.get("wgst")
+        wspd = data.get("wspd", 0)
+        wgst = data.get("wgst")
 
         try:
-            wspd = float(raw_wspd) if raw_wspd is not None else 0.0
+            wspd = float(wspd) if wspd is not None else 0.0
         except (ValueError, TypeError):
             wspd = 0.0
 
         try:
-            wgst = float(raw_wgst) if raw_wgst is not None else None
+            wgst = float(wgst) if wgst is not None else None
         except (ValueError, TypeError):
             wgst = None
 
-        if raw_wdir is None or str(raw_wdir).strip().upper() == "VRB":
+        if raw_wdir == "VRB" or raw_wdir is None:
             wdir = None
-            is_variable = True
+            wind_str = f"VRB at {int(wspd)}kt" + (f" G{int(wgst)}kt" if wgst else "")
         else:
             try:
                 wdir = float(raw_wdir)
-                is_variable = False
+                wind_str = f"{int(wdir):03d}° at {int(wspd)}kt" + (f" G{int(wgst)}kt" if wgst else "")
             except (ValueError, TypeError):
                 wdir = None
-                is_variable = True
-
-        if wspd == 0:
-            wind_str = "Calm"
-        elif is_variable:
-            wind_str = f"Variable at {int(wspd)}kt" + (f" G{int(wgst)}kt" if wgst else "")
-        else:
-            wind_str = f"{int(wdir):03d}° at {int(wspd)}kt" + (f" G{int(wgst)}kt" if wgst else "")
+                wind_str = f"{raw_wdir} at {int(wspd)}kt" + (f" G{int(wgst)}kt" if wgst else "")
 
         # Visibility
-        vis_val = data.get("visib")
-        if isinstance(vis_val, str) and vis_val.endswith("+"):
+        vis_raw = data.get("visib")
+        if vis_raw is not None:
             try:
-                vis_miles = float(vis_val[:-1])
-            except ValueError:
-                vis_miles = 10.0
-        elif vis_val is not None:
-            try:
-                vis_miles = float(vis_val)
+                vis_miles = float(vis_raw)
             except ValueError:
                 vis_miles = 10.0
         else:
@@ -244,11 +240,24 @@ class METARDecoder:
         issue_time = data.get("issueTime", "")
         valid_from = data.get("validTimeFrom")
         valid_to = data.get("validTimeTo")
-        forecast_list = data.get("forecast", [])
+        
+        # NOAA AWC uses 'fcsts' or 'forecast' or 'forecasts'
+        forecast_list = data.get("fcsts") or data.get("forecast") or data.get("forecasts") or []
 
         decoded_forecasts = []
         for fc in forecast_list:
-            fc_type = fc.get("fcstChange", "INITIAL") or "INITIAL"
+            fc_change = fc.get("fcstChange")
+            prob = fc.get("probability")
+            
+            if fc_change:
+                fc_type = str(fc_change).upper()
+                if prob:
+                    fc_type = f"PROB{prob} {fc_type}"
+            elif prob:
+                fc_type = f"PROB{prob}"
+            else:
+                fc_type = "INITIAL"
+
             from_time = fc.get("timeFrom")
             to_time = fc.get("timeTo")
             
@@ -258,13 +267,13 @@ class METARDecoder:
                 try:
                     dt_from = datetime.fromtimestamp(from_time, tz=timezone.utc)
                     dt_to = datetime.fromtimestamp(to_time, tz=timezone.utc)
-                    t_win_str = f"{dt_from.strftime('%H:%MZ')} - {dt_to.strftime('%H:%MZ')}"
+                    t_win_str = f"{dt_from.strftime('%d%H:%M')}Z - {dt_to.strftime('%d%H:%M')}Z"
                 except Exception:
                     t_win_str = f"{from_time} - {to_time}"
             elif from_time:
                 try:
                     dt_from = datetime.fromtimestamp(from_time, tz=timezone.utc)
-                    t_win_str = f"From {dt_from.strftime('%H:%MZ')}"
+                    t_win_str = f"From {dt_from.strftime('%d%H:%M')}Z"
                 except Exception:
                     t_win_str = f"From {from_time}"
 
@@ -284,12 +293,15 @@ class METARDecoder:
             fc_vis = fc.get("visib")
             if fc_vis is not None:
                 try:
-                    fc_vis_f = float(fc_vis)
+                    fc_vis_f = float(str(fc_vis).replace("+", "").replace("P", ""))
                     fc_vis_str = f"{fc_vis_f} SM" if fc_vis_f < 6 else "6+ SM"
                 except ValueError:
                     fc_vis_str = f"{fc_vis} SM"
             else:
                 fc_vis_str = "6+ SM"
+
+            # Weather Phenomena (e.g. VCSH, VCTS, TSRA)
+            wx_str = fc.get("wxString")
 
             # Clouds & Ceiling
             fc_clouds = fc.get("clouds", [])
@@ -298,8 +310,10 @@ class METARDecoder:
             for c in fc_clouds:
                 c_cov = c.get("cover", "")
                 c_base = c.get("base")
+                c_type = c.get("type") or ""
                 if c_base is not None:
-                    fc_cloud_layers.append(f"{c_cov} {c_base}ft")
+                    type_suffix = f" ({c_type})" if c_type else ""
+                    fc_cloud_layers.append(f"{c_cov} {c_base}ft{type_suffix}")
                     if c_cov in ["BKN", "OVC", "VV"] and fc_ceiling is None:
                         try:
                             fc_ceiling = int(c_base)
@@ -316,7 +330,7 @@ class METARDecoder:
                 vis_num = 6.0
                 if fc_vis is not None:
                     try:
-                        vis_num = float(fc_vis)
+                        vis_num = float(str(fc_vis).replace("+", "").replace("P", ""))
                     except ValueError:
                         vis_num = 6.0
                 fc_cat = cls.determine_flight_category(vis_num, fc_ceiling)
@@ -326,7 +340,9 @@ class METARDecoder:
                 "time_window": t_win_str,
                 "wind": fc_wind_str,
                 "vis": fc_vis_str,
+                "weather": wx_str,
                 "clouds": fc_clouds_str,
+                "ceiling_ft": fc_ceiling,
                 "category": fc_cat,
                 "category_emoji": cls.CATEGORY_EMOJIS.get(fc_cat, "⚪"),
                 "raw": fc.get("rawFcst", "")

@@ -108,10 +108,11 @@ class BriefingEmbedBuilder:
             
             taf_body = []
             if taf_dep.get("forecasts"):
-                for fc in taf_dep["forecasts"][:4]:
+                for fc in taf_dep["forecasts"][:5]:
                     fc_type = f"**{fc['type']}**" if fc['type'] != "INITIAL" else "**INITIAL**"
+                    wx_str = f" • **{fc['weather']}**" if fc.get('weather') else ""
                     taf_body.append(
-                        f"• {fc['category_emoji']} `{fc['time_window']}` {fc_type}: Wind `{fc['wind']}`, Vis `{fc['vis']}`, Clouds: `{fc['clouds']}`"
+                        f"• {fc['category_emoji']} `{fc['time_window']}` {fc_type}: Wind `{fc['wind']}`, Vis `{fc['vis']}`{wx_str}, Clouds: `{fc['clouds']}`"
                     )
             
             raw_taf_snippet = f"```{taf_dep.get('raw', '')}```"
