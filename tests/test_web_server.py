@@ -21,6 +21,8 @@ async def test_web_config():
         assert resp.status == 200
         data = await resp.json()
         assert "home_icao" in data
+        assert "carto_api_key" in data
+        assert data["carto_api_key"] == "cb1_2lns_1_9826745253a1dbc927042b86"
 
 @pytest.mark.asyncio
 async def test_web_insights():
@@ -31,9 +33,12 @@ async def test_web_insights():
         data = await resp.json()
         assert "server" in data
         assert "memory" in data
+        assert "network" in data
+        assert "total_mb_transferred" in data["network"]
         assert "requests" in data
         assert "caches" in data
         assert "lightning" in data
+        assert "traffic" in data
 
 @pytest.mark.asyncio
 async def test_web_airport_search():
@@ -80,6 +85,18 @@ async def test_web_lightning():
         data = await resp.json()
         assert "strikes" in data
         assert "stats" in data
+
+@pytest.mark.asyncio
+async def test_web_adsb():
+    app = create_web_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/traffic/adsb?lat=32.1422&lon=-111.1746&radius_nm=50")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "aircraft" in data
+        assert "provider" in data
+        assert "count" in data
+        assert isinstance(data["aircraft"], list)
 
 @pytest.mark.asyncio
 async def test_web_index():

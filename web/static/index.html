@@ -160,9 +160,30 @@
         </div>
 
         <div class="text-[10px] font-black tracking-wider text-gray-400 uppercase px-1 pt-1 pb-0.5 border-t border-deck-border/60 flex items-center justify-between">
-          <span>Weather & Airspace</span>
+          <span>Weather, Airspace & Traffic</span>
           <i class="fa-solid fa-layer-group text-blue-400"></i>
         </div>
+
+        <!-- Sectional Aeronautical Chart Toggle -->
+        <label class="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer text-xs transition">
+          <span class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span class="font-semibold text-amber-200">VFR Sectional Overlay</span>
+          </span>
+          <input type="checkbox" id="layer-sectional" checked class="accent-amber-400 rounded cursor-pointer">
+        </label>
+
+        <!-- Live ADS-B Aircraft Traffic Toggle -->
+        <label class="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer text-xs transition">
+          <span class="flex items-center gap-2">
+            <i class="fa-solid fa-plane text-sky-400 text-xs"></i>
+            <span class="font-bold text-sky-300">Live Traffic (ADS-B)</span>
+          </span>
+          <div class="flex items-center gap-1.5">
+            <span id="traffic-count-badge" class="px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 text-[9px] font-mono font-bold">0</span>
+            <input type="checkbox" id="layer-traffic" checked class="accent-sky-400 rounded cursor-pointer">
+          </div>
+        </label>
 
         <!-- NEXRAD Radar Toggle -->
         <label class="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer text-xs transition">
@@ -210,6 +231,28 @@
         </label>
       </div>
 
+      <!-- Traffic Altitude Legend Card -->
+      <div id="traffic-legend-card" class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-56 text-[11px]">
+        <div class="text-[10px] font-black tracking-wider text-sky-400 uppercase px-1 pb-1 border-b border-deck-border/60 flex items-center justify-between">
+          <span>✈️ Aircraft Altitudes</span>
+          <span id="traffic-provider-label" class="font-mono text-[9px] text-gray-400">ADS-B LIVE</span>
+        </div>
+        <div class="grid grid-cols-2 gap-1 pt-1 text-[10px] font-medium text-gray-300">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/60"></span> &lt; 5k ft
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/60"></span> 5k–18k ft
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/60"></span> 18k–30k ft
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-fuchsia-400 shadow-sm shadow-fuchsia-400/60"></span> &gt; 30k ft
+          </div>
+        </div>
+      </div>
+
       <!-- Lightning Strikes Age Legend -->
       <div id="lightning-legend-card" class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-56 text-[11px]">
         <div class="text-[10px] font-black tracking-wider text-yellow-400 uppercase px-1 pb-1 border-b border-deck-border/60 flex items-center justify-between">
@@ -218,16 +261,16 @@
         </div>
         <div class="grid grid-cols-2 gap-1 pt-1 text-[10px] font-medium text-gray-300">
           <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-yellow-300 shadow-md shadow-yellow-300/80"></span> &lt; 2m (Live)
+            <span class="w-2.5 h-2.5 rounded-full bg-yellow-300 border border-black shadow-md shadow-yellow-300/80"></span> &lt; 2m (Live)
           </div>
           <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-amber-500"></span> 2–15m
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 border border-black"></span> 2–15m
           </div>
           <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-red-500"></span> 15–45m
+            <span class="w-2.5 h-2.5 rounded-full bg-red-500 border border-black"></span> 15–30m
           </div>
           <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-purple-500"></span> &gt; 45m
+            <span class="w-2.5 h-2.5 rounded-full bg-purple-500 border border-black"></span> 30–45m
           </div>
         </div>
       </div>
@@ -280,11 +323,11 @@
     <div id="map" class="flex-1 w-full h-full bg-[#11161F] z-10"></div>
 
     <!-- Server Performance & Debug Insights Floating Card (Collapsible) -->
-    <div id="insights-modal" class="absolute top-4 right-4 z-20 w-80 bg-deck-panel/95 backdrop-blur-xl border border-deck-border rounded-2xl shadow-2xl p-3.5 hidden pointer-events-auto flex flex-col gap-2.5 transition-all">
+    <div id="insights-modal" class="absolute top-4 right-4 z-20 w-84 bg-deck-panel/95 backdrop-blur-xl border border-deck-border rounded-2xl shadow-2xl p-3.5 hidden pointer-events-auto flex flex-col gap-2.5 transition-all max-h-[calc(100vh-100px)] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-deck-border/60 pb-2">
         <div class="flex items-center gap-2 font-bold text-xs text-white">
-          <i class="fa-solid fa-microchip text-emerald-400"></i>
-          <span>Server Telemetry & Insights</span>
+          <i class="fa-solid fa-gauge-high text-emerald-400"></i>
+          <span>Server Telemetry & Debug</span>
         </div>
         <button id="btn-close-insights" class="w-6 h-6 rounded-lg bg-deck hover:bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center text-xs transition">
           <i class="fa-solid fa-xmark"></i>
@@ -293,6 +336,48 @@
 
       <!-- Telemetry Grid -->
       <div class="space-y-2 text-[11px]">
+        <!-- Network & Bandwidth Monitoring -->
+        <div class="bg-deck p-2 rounded-xl border border-deck-border/60 space-y-1.5">
+          <div class="flex items-center justify-between text-[10px]">
+            <span class="font-bold text-sky-400 flex items-center gap-1">
+              <i class="fa-solid fa-network-wired"></i> NETWORK & BANDWIDTH
+            </span>
+            <span id="telemetry-latency" class="font-mono text-cyan-400 text-[10px]">-- ms ping</span>
+          </div>
+          <div class="grid grid-cols-2 gap-1.5 text-[10px] font-mono text-gray-300 pt-0.5">
+            <div class="bg-deck-panel p-1.5 rounded-lg border border-deck-border/40">
+              <div class="text-gray-400 text-[9px]">RX (DOWN)</div>
+              <div id="telemetry-rx-rate" class="font-bold text-emerald-400">0.0 KB/s</div>
+            </div>
+            <div class="bg-deck-panel p-1.5 rounded-lg border border-deck-border/40">
+              <div class="text-gray-400 text-[9px]">TX (UP)</div>
+              <div id="telemetry-tx-rate" class="font-bold text-blue-400">0.0 KB/s</div>
+            </div>
+            <div class="bg-deck-panel p-1.5 rounded-lg border border-deck-border/40">
+              <div class="text-gray-400 text-[9px]">TRANSFERRED</div>
+              <div id="telemetry-total-data" class="font-bold text-white">0.0 MB</div>
+            </div>
+            <div class="bg-deck-panel p-1.5 rounded-lg border border-deck-border/40">
+              <div class="text-gray-400 text-[9px]">REQ / MIN</div>
+              <div id="telemetry-req-rate" class="font-bold text-amber-400">0 /min</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live ADS-B Aircraft Traffic Stats -->
+        <div class="bg-deck p-2 rounded-xl border border-deck-border/60 space-y-1">
+          <div class="flex items-center justify-between text-[10px]">
+            <span class="font-semibold text-gray-300 flex items-center gap-1">
+              <i class="fa-solid fa-plane-departure text-sky-400"></i> LIVE ADS-B TRAFFIC
+            </span>
+            <span id="telemetry-traffic-status" class="px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-400 font-bold border border-sky-500/30">ONLINE</span>
+          </div>
+          <div class="grid grid-cols-2 gap-1 text-[10px] font-mono text-gray-400 pt-0.5">
+            <div>Tracked: <span id="telemetry-traffic-count" class="text-white font-bold">0</span> planes</div>
+            <div>Provider: <span id="telemetry-traffic-provider" class="text-sky-400 font-bold">adsb.lol</span></div>
+          </div>
+        </div>
+
         <!-- Memory Meter -->
         <div class="bg-deck p-2 rounded-xl border border-deck-border/60 space-y-1">
           <div class="flex items-center justify-between text-gray-400 text-[10px]">
@@ -320,12 +405,10 @@
         <!-- API Throughput & Cache Stats -->
         <div class="bg-deck p-2 rounded-xl border border-deck-border/60 space-y-1">
           <div class="flex items-center justify-between text-[10px]">
-            <span class="font-semibold text-gray-300">CACHE & THROUGHPUT</span>
-            <span id="telemetry-latency" class="font-mono text-cyan-400 text-[10px]">-- ms ping</span>
+            <span class="font-semibold text-gray-300">CACHE & TOTAL REQUESTS</span>
+            <span id="telemetry-req-total" class="font-mono text-gray-300 text-[10px]">0 total</span>
           </div>
           <div class="grid grid-cols-2 gap-1 text-[10px] font-mono text-gray-400 pt-0.5">
-            <div>Req Rate: <span id="telemetry-req-rate" class="text-white font-bold">--</span> /min</div>
-            <div>Total Req: <span id="telemetry-req-total" class="text-white font-bold">--</span></div>
             <div>METARs: <span id="telemetry-cache-metars" class="text-emerald-400 font-bold">--</span> cached</div>
             <div>SIGMETs: <span id="telemetry-cache-sigmets" class="text-amber-400 font-bold">--</span> active</div>
           </div>

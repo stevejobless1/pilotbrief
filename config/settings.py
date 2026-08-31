@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Optional default iCal URL (can also be configured per user via slash command)
     ICAL_URL: str = Field(default="", description="Google Calendar Private iCal URL")
 
+    # CARTO Maps API Key
+    CARTO_API_KEY: str = Field(default="cb1_2lns_1_9826745253a1dbc927042b86", description="CARTO Maps API Key")
+
     # Database
     DATABASE_URL: str = Field(default="sqlite+aiosqlite:///data/pilotbrief.db", description="SQLAlchemy DB URL")
 
