@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ALLOWED_USER_IDS: List[int] = Field(default=[454870771039469568], description="Whitelisted Discord User IDs")
 
     # Default Home Airport (ICAO)
-    HOME_ICAO: str = Field(default="KPAO", description="Default home airport ICAO")
+    HOME_ICAO: str = Field(default="KRYN", description="Default home airport ICAO")
 
     # Optional default iCal URL (can also be configured per user via slash command)
     ICAL_URL: str = Field(default="", description="Google Calendar Private iCal URL")

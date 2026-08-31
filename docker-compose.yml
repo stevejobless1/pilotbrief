@@ -8,7 +8,7 @@ services:
     environment:
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
       - ALLOWED_USER_IDS=${ALLOWED_USER_IDS:-454870771039469568}
-      - HOME_ICAO=${HOME_ICAO:-KPAO}
+      - HOME_ICAO=${HOME_ICAO:-KRYN}
       - ICAL_URL=${ICAL_URL:-}
       - DATABASE_URL=sqlite+aiosqlite:////app/data/pilotbrief.db
       - WEB_PORT=8000

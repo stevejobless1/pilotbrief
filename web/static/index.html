@@ -68,7 +68,7 @@
     <div class="hidden md:flex items-center gap-2 bg-deck/80 p-1.5 rounded-xl border border-deck-border">
       <div class="flex items-center gap-1 bg-deck-panel px-3 py-1.5 rounded-lg border border-deck-border/60">
         <i class="fa-solid fa-plane-departure text-blue-400 text-xs"></i>
-        <input id="dep-input" type="text" placeholder="DEP (e.g. KPAO)" value="KPAO" 
+        <input id="dep-input" type="text" placeholder="DEP (e.g. KRYN)" value="KRYN" 
                class="bg-transparent text-sm font-bold uppercase w-24 outline-none text-white placeholder-gray-500 font-mono tracking-wider">
       </div>
       
@@ -99,6 +99,13 @@
         <span id="radar-opacity-val" class="text-gray-400 font-mono text-[10px]">70%</span>
       </div>
 
+      <!-- Server Debug Insights Button -->
+      <button id="btn-toggle-insights" class="px-3 py-1.5 bg-deck border border-deck-border hover:border-emerald-500/50 active:bg-emerald-600/20 text-gray-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+        <i class="fa-solid fa-server text-emerald-400"></i>
+        <span class="hidden sm:inline">Debug Insights</span>
+        <span id="insights-pulse-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+      </button>
+
       <!-- Quick Brief Drawer Toggle -->
       <button id="btn-toggle-drawer" class="px-3 py-1.5 bg-deck border border-deck-border hover:border-blue-500/50 active:bg-blue-600/20 text-gray-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
         <i class="fa-solid fa-clipboard-list text-blue-400"></i>
@@ -117,23 +124,45 @@
   <div class="relative flex-1 flex overflow-hidden">
     
     <!-- Left Layer Controls Overlay Panel -->
-    <div class="absolute top-4 left-4 z-20 flex flex-col gap-2 pointer-events-none">
+    <div class="absolute top-4 left-4 z-20 flex flex-col gap-2 pointer-events-none max-h-[calc(100vh-140px)] overflow-y-auto pr-1">
       
-      <!-- Layer Toggles Glass Card -->
-      <div class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-1.5 w-52 transition-all">
+      <!-- Basemap Switcher & Overlays Glass Card -->
+      <div class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-2 w-56 transition-all">
+        
+        <!-- Basemap Selection Header -->
         <div class="text-[10px] font-black tracking-wider text-gray-400 uppercase px-1 pb-1 border-b border-deck-border/60 flex items-center justify-between">
-          <span>Map Overlays</span>
-          <i class="fa-solid fa-layer-group text-blue-400"></i>
+          <span>Base Map Style</span>
+          <i class="fa-solid fa-earth-americas text-blue-400"></i>
         </div>
 
-        <!-- Sectional Basemap Toggle -->
-        <label class="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer text-xs transition">
-          <span class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-            <span>FAA Sectional</span>
+        <!-- Basemap Options (Sectional / Satellite / Dark Street) -->
+        <div class="grid grid-cols-3 gap-1 bg-deck p-1 rounded-xl border border-deck-border text-[10px] font-bold">
+          <button id="btn-basemap-sectional" class="py-1 px-1.5 rounded-lg bg-blue-600 text-white basemap-opt active transition text-center" title="FAA VFR Aeronautical Chart">
+            Sectional
+          </button>
+          <button id="btn-basemap-satellite" class="py-1 px-1.5 rounded-lg text-gray-400 hover:text-white basemap-opt transition text-center" title="ESRI High-Res Satellite Imagery">
+            Satellite
+          </button>
+          <button id="btn-basemap-dark" class="py-1 px-1.5 rounded-lg text-gray-400 hover:text-white basemap-opt transition text-center" title="Aviation Dark Street Map">
+            Dark
+          </button>
+        </div>
+
+        <!-- Sectional Opacity Blend Slider (shown when Sectional is active or blended) -->
+        <div id="sectional-blend-container" class="flex items-center justify-between text-[11px] bg-deck/60 p-1.5 rounded-lg border border-deck-border/40">
+          <span class="text-gray-400 text-[10px] flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span> Chart Opacity:
           </span>
-          <input type="checkbox" id="layer-sectional" checked class="accent-blue-500 rounded cursor-pointer">
-        </label>
+          <div class="flex items-center gap-1">
+            <input id="sectional-opacity" type="range" min="0" max="100" value="100" class="w-14 accent-amber-500 cursor-pointer h-1.5 bg-gray-700 rounded-lg">
+            <span id="sectional-opacity-val" class="text-gray-300 font-mono text-[10px]">100%</span>
+          </div>
+        </div>
+
+        <div class="text-[10px] font-black tracking-wider text-gray-400 uppercase px-1 pt-1 pb-0.5 border-t border-deck-border/60 flex items-center justify-between">
+          <span>Weather & Airspace</span>
+          <i class="fa-solid fa-layer-group text-blue-400"></i>
+        </div>
 
         <!-- NEXRAD Radar Toggle -->
         <label class="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer text-xs transition">
@@ -182,7 +211,7 @@
       </div>
 
       <!-- Lightning Strikes Age Legend -->
-      <div id="lightning-legend-card" class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-52 text-[11px]">
+      <div id="lightning-legend-card" class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-56 text-[11px]">
         <div class="text-[10px] font-black tracking-wider text-yellow-400 uppercase px-1 pb-1 border-b border-deck-border/60 flex items-center justify-between">
           <span>⚡ Lightning Age</span>
           <span id="lightning-strike-rate" class="font-mono text-[9px] text-gray-400">0/min</span>
@@ -204,7 +233,7 @@
       </div>
 
       <!-- Flight Categories Legend -->
-      <div class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-52 text-[11px]">
+      <div class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-56 text-[11px]">
         <div class="text-[10px] font-black tracking-wider text-gray-400 uppercase px-1 pb-1 border-b border-deck-border/60">
           Flight Category
         </div>
@@ -225,7 +254,7 @@
       </div>
 
       <!-- SIGMET Hazards Legend -->
-      <div class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-52 text-[11px]">
+      <div class="bg-deck-panel/90 backdrop-blur-md border border-deck-border p-2.5 rounded-2xl shadow-xl pointer-events-auto flex flex-col gap-1 w-56 text-[11px]">
         <div class="text-[10px] font-black tracking-wider text-gray-400 uppercase px-1 pb-1 border-b border-deck-border/60">
           Hazards
         </div>
@@ -249,6 +278,66 @@
 
     <!-- Map Canvas -->
     <div id="map" class="flex-1 w-full h-full bg-[#11161F] z-10"></div>
+
+    <!-- Server Performance & Debug Insights Floating Card (Collapsible) -->
+    <div id="insights-modal" class="absolute top-4 right-4 z-20 w-80 bg-deck-panel/95 backdrop-blur-xl border border-deck-border rounded-2xl shadow-2xl p-3.5 hidden pointer-events-auto flex flex-col gap-2.5 transition-all">
+      <div class="flex items-center justify-between border-b border-deck-border/60 pb-2">
+        <div class="flex items-center gap-2 font-bold text-xs text-white">
+          <i class="fa-solid fa-microchip text-emerald-400"></i>
+          <span>Server Telemetry & Insights</span>
+        </div>
+        <button id="btn-close-insights" class="w-6 h-6 rounded-lg bg-deck hover:bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center text-xs transition">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Telemetry Grid -->
+      <div class="space-y-2 text-[11px]">
+        <!-- Memory Meter -->
+        <div class="bg-deck p-2 rounded-xl border border-deck-border/60 space-y-1">
+          <div class="flex items-center justify-between text-gray-400 text-[10px]">
+            <span class="font-semibold text-gray-300">SYSTEM MEMORY (RAM)</span>
+            <span id="telemetry-ram-text" class="font-mono text-emerald-400">-- / -- MB</span>
+          </div>
+          <div class="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+            <div id="telemetry-ram-bar" class="bg-emerald-500 h-1.5 rounded-full telemetry-bar-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Lightning Ingest Stream Status -->
+        <div class="bg-deck p-2 rounded-xl border border-deck-border/60 space-y-1">
+          <div class="flex items-center justify-between text-[10px]">
+            <span class="font-semibold text-gray-300">⚡ LIGHTNING INGESTION</span>
+            <span id="telemetry-ws-status" class="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">STREAMING</span>
+          </div>
+          <div class="grid grid-cols-2 gap-1 text-[10px] font-mono text-gray-400 pt-0.5">
+            <div>Rate: <span id="telemetry-strike-rate" class="text-white font-bold">--</span> /min</div>
+            <div>Buffered: <span id="telemetry-strike-buffer" class="text-yellow-400 font-bold">--</span></div>
+            <div class="col-span-2 truncate">Host: <span id="telemetry-ws-host" class="text-blue-400 font-bold text-[9px]">--</span></div>
+          </div>
+        </div>
+
+        <!-- API Throughput & Cache Stats -->
+        <div class="bg-deck p-2 rounded-xl border border-deck-border/60 space-y-1">
+          <div class="flex items-center justify-between text-[10px]">
+            <span class="font-semibold text-gray-300">CACHE & THROUGHPUT</span>
+            <span id="telemetry-latency" class="font-mono text-cyan-400 text-[10px]">-- ms ping</span>
+          </div>
+          <div class="grid grid-cols-2 gap-1 text-[10px] font-mono text-gray-400 pt-0.5">
+            <div>Req Rate: <span id="telemetry-req-rate" class="text-white font-bold">--</span> /min</div>
+            <div>Total Req: <span id="telemetry-req-total" class="text-white font-bold">--</span></div>
+            <div>METARs: <span id="telemetry-cache-metars" class="text-emerald-400 font-bold">--</span> cached</div>
+            <div>SIGMETs: <span id="telemetry-cache-sigmets" class="text-amber-400 font-bold">--</span> active</div>
+          </div>
+        </div>
+
+        <!-- Server Runtime Details -->
+        <div class="bg-deck p-2 rounded-xl border border-deck-border/60 flex items-center justify-between text-[10px] text-gray-400 font-mono">
+          <span>Uptime: <span id="telemetry-uptime" class="text-white font-bold">--</span></span>
+          <span id="telemetry-py-ver" class="text-gray-500 text-[9px]">Python 3.x</span>
+        </div>
+      </div>
+    </div>
 
     <!-- Bottom Floating Time Slider & Radar/Lightning Replay Control Bar -->
     <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 w-[94%] max-w-3xl pointer-events-none">
@@ -352,7 +441,7 @@
             <span id="route-distance-badge" class="px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 font-bold border border-blue-500/30">Direct</span>
           </div>
           <div class="flex items-center justify-between font-bold text-white text-base">
-            <span id="card-dep-icao">KPAO</span>
+            <span id="card-dep-icao">KRYN</span>
             <i class="fa-solid fa-arrow-right text-gray-500 text-xs"></i>
             <span id="card-dest-icao">---</span>
           </div>
@@ -367,7 +456,7 @@
           <div class="flex items-center justify-between">
             <span class="font-bold text-white text-xs flex items-center gap-1.5">
               <span id="dep-cat-badge" class="px-1.5 py-0.5 text-[10px] rounded font-mono font-bold bg-emerald-500 text-black">VFR</span>
-              <span id="dep-brief-title">KPAO (Palo Alto)</span>
+              <span id="dep-brief-title">KRYN (Ryan Field)</span>
             </span>
             <span id="dep-metar-time" class="text-[10px] text-gray-400 font-mono">--:--Z</span>
           </div>

@@ -1,4 +1,4 @@
-﻿import aiohttp
+import aiohttp
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -29,7 +29,7 @@ class CalendarService:
                 return 0
 
             ical_url = user.ical_url.strip()
-            home_icao = user.home_icao or "KPAO"
+            home_icao = user.home_icao or settings.HOME_ICAO
 
         # Fetch iCal feed
         ical_data = None

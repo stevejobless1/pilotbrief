@@ -23,6 +23,19 @@ async def test_web_config():
         assert "home_icao" in data
 
 @pytest.mark.asyncio
+async def test_web_insights():
+    app = create_web_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/system/insights")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "server" in data
+        assert "memory" in data
+        assert "requests" in data
+        assert "caches" in data
+        assert "lightning" in data
+
+@pytest.mark.asyncio
 async def test_web_airport_search():
     app = create_web_app()
     async with TestClient(TestServer(app)) as client:

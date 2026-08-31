@@ -1,4 +1,4 @@
-﻿# Environment & Secrets
+# Environment & Secrets
 .env
 .env.local
 *.env
@@ -37,6 +37,7 @@ data/*.sqlite3
 *.sqlite3
 
 # Temp files & caches
+data/lightning_history.json
 .pytest_cache/
 .coverage
 htmlcov/

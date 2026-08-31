@@ -1,4 +1,4 @@
-﻿import re
+import re
 from typing import Dict, Any, Optional, Tuple, List
 
 # Common flight keywords to detect aviation events
@@ -20,7 +20,7 @@ class FlightEventExtractor:
         return any(kw in text for kw in FLIGHT_KEYWORDS)
 
     @classmethod
-    def extract_airports(cls, summary: str, description: str = "", default_home: str = "KPAO") -> Tuple[str, Optional[str]]:
+    def extract_airports(cls, summary: str, description: str = "", default_home: str = "KRYN") -> Tuple[str, Optional[str]]:
         """
         Extracts departure and destination ICAO codes from event title/notes.
         Examples:

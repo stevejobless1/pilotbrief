@@ -42,7 +42,7 @@ class BriefingEmbedBuilder:
             title=f"✈️ {milestone_label} • {route_str}",
             description="\n".join(desc_lines),
             color=dep_color,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
         # 2. Student Personal Minimums Callouts (if any violations or warnings)
@@ -195,7 +195,7 @@ class BriefingEmbedBuilder:
                 f"**Status:** 🛑 **NO-GO FOR VFR STUDENT FLIGHTS**\n"
             ),
             color=0xD63031,  # Emergency Red
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
         embed.add_field(

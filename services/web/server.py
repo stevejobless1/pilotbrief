@@ -1,11 +1,14 @@
 import os
 import io
+import sys
 import math
 import time
 import json
 import logging
 import asyncio
 import aiohttp
+import platform
+import ctypes
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
@@ -24,7 +27,15 @@ logger = logging.getLogger("PilotBrief.Web")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "static"
 
-# Cache for NOAA SIGMETs GeoJSON
+# Server start timestamp and telemetry metrics
+_SERVER_START_TIME = time.time()
+_REQUEST_COUNTERS = {
+    "total_requests": 0,
+    "last_minute_requests": 0,
+    "last_minute_ts": time.time()
+}
+
+# Caches to prevent API overpolling
 _sigmets_cache = {
     "data": None,
     "timestamp": 0
@@ -37,6 +48,82 @@ _radar_frames_cache = {
 
 _metars_cache = {}
 
+# Global regional METARs cache with spatial filtering
+_regional_metars_cache = {
+    "stations": [],
+    "timestamp": 0
+}
+
+
+def _get_system_telemetry() -> Dict[str, Any]:
+    """
+    Collects system, memory, and runtime diagnostics.
+    """
+    now = time.time()
+    uptime_sec = int(now - _SERVER_START_TIME)
+
+    # Request rate tracking
+    if now - _REQUEST_COUNTERS["last_minute_ts"] >= 60:
+        _REQUEST_COUNTERS["last_minute_requests"] = 0
+        _REQUEST_COUNTERS["last_minute_ts"] = now
+
+    # Memory info
+    total_ram_mb = 0
+    avail_ram_mb = 0
+    used_percent = 0
+
+    try:
+        if sys.platform == "win32":
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullExtendedVirtual", ctypes.c_ulonglong),
+                ]
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            total_ram_mb = round(stat.ullTotalPhys / (1024 * 1024))
+            avail_ram_mb = round(stat.ullAvailPhys / (1024 * 1024))
+            used_percent = int(stat.dwMemoryLoad)
+    except Exception:
+        pass
+
+    return {
+        "server": {
+            "uptime_seconds": uptime_sec,
+            "uptime_formatted": f"{uptime_sec // 3600}h {(uptime_sec % 3600) // 60}m {uptime_sec % 60}s",
+            "python_version": platform.python_version(),
+            "os": f"{platform.system()} {platform.release()}",
+            "pid": os.getpid()
+        },
+        "memory": {
+            "total_ram_mb": total_ram_mb,
+            "avail_ram_mb": avail_ram_mb,
+            "used_ram_mb": max(0, total_ram_mb - avail_ram_mb),
+            "used_percent": used_percent
+        },
+        "requests": {
+            "total_served": _REQUEST_COUNTERS["total_requests"],
+            "requests_per_min": _REQUEST_COUNTERS["last_minute_requests"]
+        },
+        "caches": {
+            "regional_metars_count": len(_regional_metars_cache["stations"]),
+            "regional_metars_age_sec": int(now - _regional_metars_cache["timestamp"]) if _regional_metars_cache["timestamp"] else None,
+            "sigmets_count": len(_sigmets_cache["data"].get("features", [])) if _sigmets_cache["data"] else 0,
+            "sigmets_age_sec": int(now - _sigmets_cache["timestamp"]) if _sigmets_cache["timestamp"] else None,
+            "radar_frames_count": len(_radar_frames_cache["data"].get("frames", [])) if _radar_frames_cache["data"] else 0,
+            "radar_frames_age_sec": int(now - _radar_frames_cache["timestamp"]) if _radar_frames_cache["timestamp"] else None
+        },
+        "lightning": lightning_service.get_stats()
+    }
+
 
 def _calculate_course_and_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> Tuple[float, float]:
     """
@@ -47,12 +134,10 @@ def _calculate_course_and_distance(lat1: float, lon1: float, lat2: float, lon2: 
     delta_phi = phi2 - phi1
     delta_lambda = lambda2 - lambda1
 
-    # Haversine distance
     a = math.sin(delta_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
     c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-    dist_nm = c * 3440.065  # Earth radius in NM
+    dist_nm = c * 3440.065
 
-    # Initial bearing
     y = math.sin(delta_lambda) * math.cos(phi2)
     x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
     bearing = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
@@ -76,7 +161,7 @@ class WebHandlers:
             "status": "healthy",
             "service": "PilotBrief Aviation Web Deck",
             "home_icao": settings.HOME_ICAO,
-            "version": "2.0.0"
+            "version": "2.1.0"
         })
 
     async def handle_config(self, request: web.Request) -> web.Response:
@@ -84,6 +169,9 @@ class WebHandlers:
             "home_icao": settings.HOME_ICAO,
             "default_intervals": settings.DEFAULT_ALERT_INTERVALS
         })
+
+    async def handle_insights(self, request: web.Request) -> web.Response:
+        return web.json_response(_get_system_telemetry())
 
     async def handle_metar(self, request: web.Request) -> web.Response:
         icao = request.query.get("icao", "").strip().upper()
@@ -131,9 +219,13 @@ class WebHandlers:
         })
 
     async def handle_regional_metars(self, request: web.Request) -> web.Response:
+        """
+        Returns regional METAR stations within requested bbox.
+        Uses in-memory spatial cache with a 120s TTL to prevent overpolling NOAA AWC API.
+        """
+        global _regional_metars_cache
         bbox = request.query.get("bbox", "")
         if not bbox:
-            # Default to NorCal bounding box around KPAO if not provided
             bbox = "36.0,-123.5,38.8,-121.0"
 
         try:
@@ -142,48 +234,89 @@ class WebHandlers:
         except Exception:
             return web.json_response({"error": "Invalid bbox format. Expected: min_lat,min_lon,max_lat,max_lon"}, status=400)
 
-        stations = await self.map_generator._fetch_regional_metars(min_lon, min_lat, max_lon, max_lat)
-        
-        # Enrich stations with flight category color and key metrics
-        results = []
-        for stn in stations:
-            try:
-                stn_icao = stn.get("icaoId", "").upper()
-                if not stn_icao:
-                    continue
-                stn_lat = float(stn.get("lat", 0))
-                stn_lon = float(stn.get("lon", 0))
-                fltcat = str(stn.get("fltcat") or stn.get("fltCat", "VFR")).upper()
-                wdir = stn.get("wdir")
-                wspd = stn.get("wspd")
-                wgst = stn.get("wgst")
-                visib = stn.get("visib")
-                altim = stn.get("altim")
-                temp = stn.get("temp")
-                dewp = stn.get("dewp")
-                cover = stn.get("cover")
-                ceil = stn.get("ceil")
-                raw = stn.get("rawOb", "")
+        now = time.time()
+        # Fetch or refresh global regional cache if expired
+        if not _regional_metars_cache["stations"] or (now - _regional_metars_cache["timestamp"]) > 120:
+            # Query broad US/coverage bounding box to populate spatial cache
+            fresh_stations = await self.map_generator._fetch_regional_metars(-130.0, 23.0, -65.0, 52.0)
+            if fresh_stations:
+                parsed_list = []
+                for stn in fresh_stations:
+                    try:
+                        stn_icao = stn.get("icaoId", "").upper()
+                        if not stn_icao:
+                            continue
+                        stn_lat = float(stn.get("lat", 0))
+                        stn_lon = float(stn.get("lon", 0))
+                        fltcat = str(stn.get("fltcat") or stn.get("fltCat", "VFR")).upper()
+                        wdir = stn.get("wdir")
+                        wspd = stn.get("wspd")
+                        wgst = stn.get("wgst")
+                        visib = stn.get("visib")
+                        altim = stn.get("altim")
+                        temp = stn.get("temp")
+                        dewp = stn.get("dewp")
+                        cover = stn.get("cover")
+                        ceil = stn.get("ceil")
+                        raw = stn.get("rawOb", "")
 
-                results.append({
-                    "icao": stn_icao,
-                    "name": stn.get("name") or stn_icao,
-                    "lat": stn_lat,
-                    "lon": stn_lon,
-                    "fltcat": fltcat,
-                    "wdir": wdir,
-                    "wspd": wspd,
-                    "wgst": wgst,
-                    "visib": visib,
-                    "altim": altim,
-                    "temp": temp,
-                    "dewp": dewp,
-                    "cover": cover,
-                    "ceil": ceil,
-                    "raw": raw
-                })
-            except Exception:
-                continue
+                        parsed_list.append({
+                            "icao": stn_icao,
+                            "name": stn.get("name") or stn_icao,
+                            "lat": stn_lat,
+                            "lon": stn_lon,
+                            "fltcat": fltcat,
+                            "wdir": wdir,
+                            "wspd": wspd,
+                            "wgst": wgst,
+                            "visib": visib,
+                            "altim": altim,
+                            "temp": temp,
+                            "dewp": dewp,
+                            "cover": cover,
+                            "ceil": ceil,
+                            "raw": raw
+                        })
+                    except Exception:
+                        continue
+                _regional_metars_cache = {
+                    "stations": parsed_list,
+                    "timestamp": now
+                }
+
+        # Filter stations matching requested bbox
+        results = [
+            stn for stn in _regional_metars_cache["stations"]
+            if (min_lat - 0.2) <= stn["lat"] <= (max_lat + 0.2) and (min_lon - 0.2) <= stn["lon"] <= (max_lon + 0.2)
+        ]
+
+        # If cache was empty and returned 0, try direct fetch for bbox as fallback
+        if not results and (now - _regional_metars_cache["timestamp"]) > 30:
+            direct_fetch = await self.map_generator._fetch_regional_metars(min_lon, min_lat, max_lon, max_lat)
+            for stn in direct_fetch:
+                try:
+                    stn_icao = stn.get("icaoId", "").upper()
+                    if not stn_icao:
+                        continue
+                    results.append({
+                        "icao": stn_icao,
+                        "name": stn.get("name") or stn_icao,
+                        "lat": float(stn.get("lat", 0)),
+                        "lon": float(stn.get("lon", 0)),
+                        "fltcat": str(stn.get("fltcat") or stn.get("fltCat", "VFR")).upper(),
+                        "wdir": stn.get("wdir"),
+                        "wspd": stn.get("wspd"),
+                        "wgst": stn.get("wgst"),
+                        "visib": stn.get("visib"),
+                        "altim": stn.get("altim"),
+                        "temp": stn.get("temp"),
+                        "dewp": stn.get("dewp"),
+                        "cover": stn.get("cover"),
+                        "ceil": stn.get("ceil"),
+                        "raw": stn.get("rawOb", "")
+                    })
+                except Exception:
+                    continue
 
         return web.json_response({"count": len(results), "stations": results})
 
@@ -193,7 +326,7 @@ class WebHandlers:
         """
         global _sigmets_cache
         now = time.time()
-        if _sigmets_cache["data"] and (now - _sigmets_cache["timestamp"]) < 60:
+        if _sigmets_cache["data"] and (now - _sigmets_cache["timestamp"]) < 120:
             return web.json_response(_sigmets_cache["data"])
 
         url = "https://aviationweather.gov/api/data/airsigmet?format=geojson"
@@ -203,8 +336,7 @@ class WebHandlers:
                     if resp.status == 200:
                         geojson_data = await resp.json()
                         features = geojson_data.get("features", [])
-                        
-                        # Enrich each feature with color codes, hazard labels, and altitude top
+
                         for feat in features:
                             props = feat.get("properties", {})
                             hazard = str(props.get("hazard", "")).upper()
@@ -244,7 +376,6 @@ class WebHandlers:
         except Exception as e:
             logger.error(f"Error fetching NOAA SIGMETs: {e}")
 
-        # Fallback if cached version exists or return empty FeatureCollection
         if _sigmets_cache["data"]:
             return web.json_response(_sigmets_cache["data"])
         return web.json_response({"type": "FeatureCollection", "features": []})
@@ -255,7 +386,7 @@ class WebHandlers:
         """
         global _radar_frames_cache
         now = time.time()
-        if _radar_frames_cache["data"] and (now - _radar_frames_cache["timestamp"]) < 60:
+        if _radar_frames_cache["data"] and (now - _radar_frames_cache["timestamp"]) < 120:
             return web.json_response(_radar_frames_cache["data"])
 
         url = "https://api.rainviewer.com/public/weather-maps.json"
@@ -276,10 +407,8 @@ class WebHandlers:
                             dt = datetime.fromtimestamp(t_sec, tz=timezone.utc)
                             path = f.get("path", "")
                             rel_mins = int((t_sec - now) / 60)
-                            
-                            # Tile template for Leaflet
                             tile_url = f"{host}{path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
-                            
+
                             formatted_frames.append({
                                 "time": t_sec,
                                 "time_ms": t_sec * 1000,
@@ -338,7 +467,6 @@ class WebHandlers:
         """
         now_ms = int(time.time() * 1000)
 
-        # Parse query params
         since_ms = request.query.get("since_ms")
         until_ms = request.query.get("until_ms")
         window_mins = request.query.get("window_mins")
@@ -379,7 +507,7 @@ class WebHandlers:
             since_ms=since_val,
             until_ms=until_val,
             bbox=bbox_tuple,
-            max_results=3500
+            max_results=4000
         )
 
         return web.json_response({
@@ -398,7 +526,6 @@ class WebHandlers:
             return web.json_response({"results": []})
 
         matches = []
-        # Search local airport_db
         for icao, apt in airport_db._airports.items():
             name = apt.get("name", "")
             if query in icao or query in name.upper():
@@ -413,7 +540,6 @@ class WebHandlers:
                 if len(matches) >= 15:
                     break
 
-        # If not found locally and exactly 3 or 4 letters, try dynamic fetch
         if not matches and len(query) in (3, 4):
             icao_candidate = query if len(query) == 4 else f"K{query}"
             apt = airport_db.fetch_dynamic_airport(icao_candidate)
@@ -444,7 +570,6 @@ class WebHandlers:
         runways = airport_db.get_runways(icao)
         lat, lon = airport_db.get_coordinates(icao) or (0.0, 0.0)
 
-        # Try to get live METAR to compute runway crosswind components
         metar_raw = await self.awc_client.get_metar(icao)
         runway_analysis = []
         decoded_metar = None
@@ -472,7 +597,6 @@ class WebHandlers:
                     "is_favorable": False
                 })
 
-            # Identify best runway (max headwind, minimum crosswind)
             if runway_analysis:
                 best = max(runway_analysis, key=lambda x: (x["headwind"] - x["crosswind"] * 0.4))
                 best["is_favorable"] = True
@@ -513,8 +637,7 @@ class WebHandlers:
             if dest_coord:
                 dest_lat, dest_lon = dest_coord
                 dist_nm, true_course = _calculate_course_and_distance(dep_lat, dep_lon, dest_lat, dest_lon)
-                
-                # Midpoint calculation
+
                 mid_lat = (dep_lat + dest_lat) / 2.0
                 mid_lon = (dep_lon + dest_lon) / 2.0
 
@@ -534,7 +657,6 @@ class WebHandlers:
                     ]
                 }
 
-        # Calculate Range Rings around departure (25, 50, 75, 100 NM)
         nm_to_meters = 1852.0
         rings = []
         for nm in [25, 50, 75, 100]:
@@ -559,7 +681,6 @@ class WebHandlers:
         except Exception:
             pass
 
-        # Fetch sigmets if possible
         sigmets = None
         if _sigmets_cache["data"]:
             sigmets = _sigmets_cache["data"].get("features", [])
@@ -581,9 +702,13 @@ def create_web_app() -> web.Application:
     app = web.Application()
     handlers = WebHandlers()
 
-    # Enable CORS for all API responses
+    # Request metrics and CORS middleware
     @web.middleware
-    async def cors_middleware(request, handler):
+    async def metrics_and_cors_middleware(request, handler):
+        global _REQUEST_COUNTERS
+        _REQUEST_COUNTERS["total_requests"] += 1
+        _REQUEST_COUNTERS["last_minute_requests"] += 1
+
         if request.method == "OPTIONS":
             resp = web.Response()
         else:
@@ -600,9 +725,9 @@ def create_web_app() -> web.Application:
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return resp
 
-    app.middlewares.append(cors_middleware)
+    app.middlewares.append(metrics_and_cors_middleware)
 
-    # Lifecycle hooks to start/stop lightning service
+    # Startup & Cleanup hooks for lightning worker
     async def on_startup(app_instance):
         lightning_service.start()
 
@@ -615,6 +740,7 @@ def create_web_app() -> web.Application:
     # API Routes
     app.router.add_get("/api/health", handlers.handle_health)
     app.router.add_get("/api/config", handlers.handle_config)
+    app.router.add_get("/api/system/insights", handlers.handle_insights)
     app.router.add_get("/api/weather/metar", handlers.handle_metar)
     app.router.add_get("/api/weather/taf", handlers.handle_taf)
     app.router.add_get("/api/weather/regional-metars", handlers.handle_regional_metars)

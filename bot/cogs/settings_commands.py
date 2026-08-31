@@ -1,4 +1,4 @@
-﻿import discord
+import discord
 from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
@@ -107,7 +107,7 @@ class SettingsCommands(commands.Cog):
             user = await session.get(UserSettings, interaction.user.id)
             minima = await session.get(PersonalMinima, interaction.user.id)
 
-        home = user.home_icao if user else "KPAO"
+        home = user.home_icao if user else settings.HOME_ICAO
         cal_status = "🔗 Linked" if (user and user.ical_url) else "❌ Not Linked (`/settings link-calendar`)"
         last_sync = f"<t:{int(user.last_synced_at.timestamp())}:R>" if (user and user.last_synced_at) else "Never"
         intervals = user.get_alert_intervals() if user else [360, 180, 120, 60, 15]

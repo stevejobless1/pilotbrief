@@ -151,7 +151,7 @@ class FlightCommands(commands.Cog):
             if not airport:
                 async with AsyncSessionLocal() as session:
                     user = await session.get(UserSettings, interaction.user.id)
-                    icao = user.home_icao.upper() if user and user.home_icao else "KPAO"
+                    icao = user.home_icao.upper() if user and user.home_icao else settings.HOME_ICAO
             else:
                 icao = airport.strip().upper()
 

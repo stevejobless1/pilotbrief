@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import Column, Integer, BigInteger, String, DateTime, ForeignKey, Text, select
 from sqlalchemy.orm import declarative_base, relationship
@@ -9,7 +9,7 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
 
     discord_user_id = Column(BigInteger, primary_key=True)
-    home_icao = Column(String(10), default="KPAO")
+    home_icao = Column(String(10), default="KRYN")
     ical_url = Column(Text, nullable=True)
     alert_intervals_csv = Column(String(100), default="360,180,120,60,15")
     convective_alert_enabled = Column(Integer, default=1)  # 1 = enabled, 0 = disabled

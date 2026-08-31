@@ -132,6 +132,13 @@
   animation: lightning-pulse 1.2s infinite ease-in-out;
 }
 
+/* Basemap Active Button */
+.basemap-opt.active {
+  background-color: #2563EB !important;
+  color: #FFFFFF !important;
+  border-color: #3B82F6 !important;
+}
+
 /* Custom Range Slider Styling */
 #timeline-slider {
   background: linear-gradient(to right, #1E293B, #3B82F6);
@@ -164,4 +171,9 @@
 .speed-btn.active {
   background-color: #2563EB !important;
   color: #FFFFFF !important;
+}
+
+/* Telemetry Mini Meters & Gauges */
+.telemetry-bar-fill {
+  transition: width 0.4s ease, background-color 0.4s ease;
 }

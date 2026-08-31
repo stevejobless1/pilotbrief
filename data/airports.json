@@ -1,4 +1,50 @@
 {
+  "KRYN": {
+    "name": "Ryan Field",
+    "city": "Tucson",
+    "state": "AZ",
+    "lat": 32.1422,
+    "lon": -111.1746,
+    "elevation_ft": 2419,
+    "runways": [
+      {
+        "id": "06L",
+        "heading": 60,
+        "length_ft": 4900,
+        "width_ft": 75
+      },
+      {
+        "id": "24R",
+        "heading": 240,
+        "length_ft": 4900,
+        "width_ft": 75
+      },
+      {
+        "id": "06R",
+        "heading": 60,
+        "length_ft": 5500,
+        "width_ft": 75
+      },
+      {
+        "id": "24L",
+        "heading": 240,
+        "length_ft": 5500,
+        "width_ft": 75
+      },
+      {
+        "id": "15",
+        "heading": 150,
+        "length_ft": 4010,
+        "width_ft": 75
+      },
+      {
+        "id": "33",
+        "heading": 330,
+        "length_ft": 4010,
+        "width_ft": 75
+      }
+    ]
+  },
   "KPAO": {
     "name": "Palo Alto Airport",
     "city": "Palo Alto",
