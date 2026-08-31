@@ -48,6 +48,27 @@ async def test_web_route():
         assert len(data["range_rings"]) == 4
 
 @pytest.mark.asyncio
+async def test_web_radar_frames():
+    app = create_web_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/weather/radar-frames")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "frames" in data
+        assert len(data["frames"]) > 0
+        assert "tile_url" in data["frames"][0] or "wms_url" in data["frames"][0]
+
+@pytest.mark.asyncio
+async def test_web_lightning():
+    app = create_web_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/weather/lightning")
+        assert resp.status == 200
+        data = await resp.json()
+        assert "strikes" in data
+        assert "stats" in data
+
+@pytest.mark.asyncio
 async def test_web_index():
     app = create_web_app()
     async with TestClient(TestServer(app)) as client:

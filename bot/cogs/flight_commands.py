@@ -1,4 +1,4 @@
-﻿import io
+import io
 import logging
 import asyncio
 import discord
@@ -131,7 +131,8 @@ class FlightCommands(commands.Cog):
                 raw_metar=decoded_metar_dep.get("raw", "") if decoded_metar_dep else "",
                 raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else "",
                 tactical_map_bytes=tactical_map_bytes,
-                sectional_map_bytes=sectional_map_bytes
+                sectional_map_bytes=sectional_map_bytes,
+                raw_dest_metar=decoded_metar_dest.get("raw", "") if decoded_metar_dest else None
             )
 
             if file:
@@ -301,7 +302,8 @@ class FlightCommands(commands.Cog):
                 raw_metar=decoded_metar_dep.get("raw", "") if decoded_metar_dep else "",
                 raw_taf=decoded_taf_dep.get("raw", "") if decoded_taf_dep else "",
                 tactical_map_bytes=tactical_map_bytes,
-                sectional_map_bytes=sectional_map_bytes
+                sectional_map_bytes=sectional_map_bytes,
+                raw_dest_metar=decoded_metar_dest.get("raw", "") if decoded_metar_dest else None
             )
 
             if file:

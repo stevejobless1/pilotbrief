@@ -8,6 +8,7 @@ import asyncio
 import aiohttp
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime, timezone
 from aiohttp import web
 
 from config.settings import settings
@@ -16,6 +17,7 @@ from services.weather.decoder import METARDecoder
 WeatherDecoder = METARDecoder
 from services.weather.crosswind import airport_db, CrosswindCalculator
 from services.weather.sigmet_monitor import SigmetMonitor
+from services.weather.lightning_service import lightning_service
 from services.radar.map_generator import RadarMapGenerator
 
 logger = logging.getLogger("PilotBrief.Web")
@@ -24,6 +26,11 @@ STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "static"
 
 # Cache for NOAA SIGMETs GeoJSON
 _sigmets_cache = {
+    "data": None,
+    "timestamp": 0
+}
+
+_radar_frames_cache = {
     "data": None,
     "timestamp": 0
 }
@@ -242,6 +249,149 @@ class WebHandlers:
             return web.json_response(_sigmets_cache["data"])
         return web.json_response({"type": "FeatureCollection", "features": []})
 
+    async def handle_radar_frames(self, request: web.Request) -> web.Response:
+        """
+        Returns available radar frames for the past 2-3 hours for timeline replay.
+        """
+        global _radar_frames_cache
+        now = time.time()
+        if _radar_frames_cache["data"] and (now - _radar_frames_cache["timestamp"]) < 60:
+            return web.json_response(_radar_frames_cache["data"])
+
+        url = "https://api.rainviewer.com/public/weather-maps.json"
+        try:
+            async with aiohttp.ClientSession(headers={"User-Agent": "PilotBrief-Web/1.0"}) as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        host = data.get("host", "https://tilecache.rainviewer.com")
+                        past_frames = data.get("radar", {}).get("past", [])
+                        nowcast_frames = data.get("radar", {}).get("nowcast", [])
+
+                        formatted_frames = []
+                        all_frames = past_frames + nowcast_frames
+
+                        for f in all_frames:
+                            t_sec = f.get("time", 0)
+                            dt = datetime.fromtimestamp(t_sec, tz=timezone.utc)
+                            path = f.get("path", "")
+                            rel_mins = int((t_sec - now) / 60)
+                            
+                            # Tile template for Leaflet
+                            tile_url = f"{host}{path}/256/{{z}}/{{x}}/{{y}}/2/1_1.png"
+                            
+                            formatted_frames.append({
+                                "time": t_sec,
+                                "time_ms": t_sec * 1000,
+                                "utc_time": dt.strftime("%H:%MZ"),
+                                "iso": dt.isoformat(),
+                                "path": path,
+                                "tile_url": tile_url,
+                                "relative_mins": rel_mins,
+                                "is_nowcast": (t_sec > now)
+                            })
+
+                        result = {
+                            "host": host,
+                            "count": len(formatted_frames),
+                            "frames": formatted_frames
+                        }
+                        _radar_frames_cache = {
+                            "data": result,
+                            "timestamp": now
+                        }
+                        return web.json_response(result)
+        except Exception as e:
+            logger.error(f"Error fetching radar replay frames: {e}")
+
+        # Fallback to IEM WMS relative frames if RainViewer is unavailable
+        iem_frames = []
+        for m in [120, 105, 90, 75, 60, 50, 40, 30, 20, 10, 5, 0]:
+            t_sec = int(now - m * 60)
+            dt = datetime.fromtimestamp(t_sec, tz=timezone.utc)
+            layer_name = f"nexrad-n0q-m{m:02d}m" if m > 0 else "nexrad-n0q-m05m"
+            wms_url = (
+                f"https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q.cgi?"
+                f"SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS={layer_name}&"
+                f"FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857"
+            )
+            iem_frames.append({
+                "time": t_sec,
+                "time_ms": t_sec * 1000,
+                "utc_time": dt.strftime("%H:%MZ"),
+                "iso": dt.isoformat(),
+                "path": layer_name,
+                "wms_url": wms_url,
+                "relative_mins": -m,
+                "is_nowcast": False
+            })
+
+        return web.json_response({
+            "host": "https://mesonet.agron.iastate.edu",
+            "count": len(iem_frames),
+            "frames": iem_frames
+        })
+
+    async def handle_lightning(self, request: web.Request) -> web.Response:
+        """
+        Returns live and historical lightning strikes within requested time window and bounding box.
+        """
+        now_ms = int(time.time() * 1000)
+
+        # Parse query params
+        since_ms = request.query.get("since_ms")
+        until_ms = request.query.get("until_ms")
+        window_mins = request.query.get("window_mins")
+        bbox_str = request.query.get("bbox")
+
+        since_val = None
+        until_val = None
+
+        if since_ms:
+            try:
+                since_val = int(since_ms)
+            except ValueError:
+                pass
+
+        if until_ms:
+            try:
+                until_val = int(until_ms)
+            except ValueError:
+                pass
+
+        if window_mins and not since_val:
+            try:
+                wm = float(window_mins)
+                since_val = now_ms - int(wm * 60 * 1000)
+            except ValueError:
+                pass
+
+        bbox_tuple = None
+        if bbox_str:
+            try:
+                parts = [float(x.strip()) for x in bbox_str.split(",")]
+                if len(parts) == 4:
+                    bbox_tuple = (parts[0], parts[1], parts[2], parts[3])
+            except Exception:
+                pass
+
+        strikes = lightning_service.get_strikes(
+            since_ms=since_val,
+            until_ms=until_val,
+            bbox=bbox_tuple,
+            max_results=3500
+        )
+
+        return web.json_response({
+            "count": len(strikes),
+            "now_ms": now_ms,
+            "stats": lightning_service.get_stats(),
+            "strikes": strikes
+        })
+
+    async def handle_lightning_stats(self, request: web.Request) -> web.Response:
+        return web.json_response(lightning_service.get_stats())
+
     async def handle_airports_search(self, request: web.Request) -> web.Response:
         query = request.query.get("q", "").strip().upper()
         if not query or len(query) < 2:
@@ -452,6 +602,16 @@ def create_web_app() -> web.Application:
 
     app.middlewares.append(cors_middleware)
 
+    # Lifecycle hooks to start/stop lightning service
+    async def on_startup(app_instance):
+        lightning_service.start()
+
+    async def on_cleanup(app_instance):
+        lightning_service.stop()
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
+
     # API Routes
     app.router.add_get("/api/health", handlers.handle_health)
     app.router.add_get("/api/config", handlers.handle_config)
@@ -459,6 +619,9 @@ def create_web_app() -> web.Application:
     app.router.add_get("/api/weather/taf", handlers.handle_taf)
     app.router.add_get("/api/weather/regional-metars", handlers.handle_regional_metars)
     app.router.add_get("/api/weather/sigmets", handlers.handle_sigmets)
+    app.router.add_get("/api/weather/radar-frames", handlers.handle_radar_frames)
+    app.router.add_get("/api/weather/lightning", handlers.handle_lightning)
+    app.router.add_get("/api/weather/lightning-stats", handlers.handle_lightning_stats)
     app.router.add_get("/api/airports/search", handlers.handle_airports_search)
     app.router.add_get("/api/airports/{icao}", handlers.handle_airport_details)
     app.router.add_get("/api/route", handlers.handle_route)

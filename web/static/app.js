@@ -1,18 +1,33 @@
 /**
- * PilotBrief Aviation Web Deck & Live Sectional Map Application
+ * PilotBrief Aviation Web Deck — Live Sectional, Radar, Lightning & Historical Replay
  */
 
 // State
 let map;
 let sectionalLayer;
 let nexradLayer;
+let radarFramesLayer;
 let sigmetsLayer;
 let metarsLayer;
+let lightningLayer;
 let routeLayer;
 let ringsLayer;
 
 let currentDep = "KPAO";
 let currentDest = null;
+
+// Replay State
+let radarFrames = [];
+let currentFrameIndex = -1;
+let isPlaying = false;
+let playInterval = null;
+let playSpeed = 1000; // ms per frame
+let isLooping = true;
+let isLiveMode = true;
+
+// Lightning State
+let allStrikes = [];
+let lightningPollInterval = null;
 
 // Clock updates
 function updateClocks() {
@@ -32,36 +47,42 @@ updateClocks();
 
 // Initialize Map
 function initMap() {
-  // Center on KPAO / Bay Area by default
+  // Center on KPAO / Bay Area by default with Canvas rendering for optimal speed
   map = L.map("map", {
     center: [37.4611, -122.115],
-    zoom: 9,
-    minZoom: 5,
-    maxZoom: 12,
-    zoomControl: false
+    zoom: 8,
+    minZoom: 3,
+    maxZoom: 13,
+    zoomControl: false,
+    preferCanvas: true
   });
 
   // Custom Zoom Control top-right
   L.control.zoom({ position: "topright" }).addTo(map);
 
-  // 1. FAA VFR Sectional Basemap
+  // 1. FAA VFR Sectional Basemap (Configured with native zoom scaling so full airspace loads smoothly)
   sectionalLayer = L.tileLayer(
     "https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}",
     {
-      maxZoom: 12,
-      minZoom: 5,
+      minZoom: 3,
+      maxZoom: 13,
+      minNativeZoom: 6,
+      maxNativeZoom: 11,
+      updateWhenIdle: true,
+      updateWhenZooming: false,
+      keepBuffer: 6,
       attribution: "FAA VFR Sectional &copy; ESRI / ArcGIS"
     }
   ).addTo(map);
 
-  // 2. IEM Composite NEXRAD Radar WMS Layer
+  // 2. Interactive Radar Layer (Default to IEM Live WMS)
   nexradLayer = L.tileLayer.wms(
     "https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q.cgi",
     {
       layers: "nexrad-n0q-m05m",
       format: "image/png",
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.70,
       version: "1.1.1",
       attribution: "NEXRAD &copy; IEM / NOAA"
     }
@@ -70,35 +91,289 @@ function initMap() {
   // Layer groups
   sigmetsLayer = L.layerGroup().addTo(map);
   metarsLayer = L.layerGroup().addTo(map);
+  lightningLayer = L.layerGroup().addTo(map);
   ringsLayer = L.layerGroup().addTo(map);
   routeLayer = L.layerGroup().addTo(map);
 
-  // Map move event -> reload regional METARs
+  // Map move event -> reload regional METARs (debounced)
+  let moveTimeout;
   map.on("moveend", () => {
-    if (document.getElementById("layer-metars").checked) {
-      loadRegionalMetars();
-    }
+    clearTimeout(moveTimeout);
+    moveTimeout = setTimeout(() => {
+      if (document.getElementById("layer-metars").checked) {
+        loadRegionalMetars();
+      }
+      if (document.getElementById("layer-lightning").checked) {
+        renderLightning(getCurrentDisplayTimestamp());
+      }
+    }, 250);
   });
 
   // Setup UI Listeners
   setupEventListeners();
 
-  // Initial Data Load
+  // Initial Data Loads
+  loadRadarFrames();
+  loadLightningData();
   loadSigmets();
   loadRegionalMetars();
   plotRoute();
 
-  // Auto-refresh every 2 minutes
+  // Auto-refresh lightning every 8 seconds
+  lightningPollInterval = setInterval(loadLightningData, 8000);
+
+  // Auto-refresh radar frames and METARs every 2 minutes
   setInterval(() => {
+    loadRadarFrames();
     loadSigmets();
     loadRegionalMetars();
-    if (nexradLayer) {
-      nexradLayer.setParams({ _t: Date.now() });
-    }
   }, 120000);
 }
 
-// Fetch & Render Active SIGMET / AIRMET Polygons
+// -------------------------------------------------------------
+// RADAR FRAMES & TIMELINE REPLAY ENGINE
+// -------------------------------------------------------------
+
+async function loadRadarFrames() {
+  try {
+    const res = await fetch("/api/weather/radar-frames");
+    if (!res.ok) return;
+    const data = await res.json();
+    radarFrames = data.frames || [];
+
+    if (radarFrames.length > 0) {
+      const slider = document.getElementById("timeline-slider");
+      slider.max = radarFrames.length - 1;
+      
+      if (isLiveMode || currentFrameIndex === -1) {
+        currentFrameIndex = radarFrames.length - 1;
+        slider.value = currentFrameIndex;
+      }
+      
+      updateTimelineUI();
+    }
+  } catch (err) {
+    console.error("Error loading radar frames:", err);
+  }
+}
+
+function setRadarFrame(index) {
+  if (index < 0 || index >= radarFrames.length) return;
+  currentFrameIndex = index;
+  const frame = radarFrames[index];
+
+  // Update slider input value
+  document.getElementById("timeline-slider").value = index;
+
+  // If frame has a tile_url, use TileLayer; otherwise fallback to WMS
+  const opacity = parseFloat(document.getElementById("radar-opacity").value) / 100.0;
+  
+  if (document.getElementById("layer-nexrad").checked) {
+    if (radarFramesLayer) {
+      map.removeLayer(radarFramesLayer);
+    }
+
+    if (frame.tile_url) {
+      if (map.hasLayer(nexradLayer)) map.removeLayer(nexradLayer);
+      
+      radarFramesLayer = L.tileLayer(frame.tile_url, {
+        opacity: opacity,
+        maxZoom: 12,
+        minZoom: 3,
+        zIndex: 2
+      }).addTo(map);
+    } else if (frame.wms_url) {
+      if (radarFramesLayer) map.removeLayer(radarFramesLayer);
+      if (!map.hasLayer(nexradLayer)) map.addLayer(nexradLayer);
+      nexradLayer.setParams({ LAYERS: frame.path || "nexrad-n0q-m05m" });
+    }
+  }
+
+  // Check if current frame is LIVE
+  isLiveMode = (index === radarFrames.length - 1);
+  updateTimelineUI();
+
+  // Render lightning strikes corresponding to this time window
+  renderLightning(frame.time_ms);
+}
+
+function getCurrentDisplayTimestamp() {
+  if (currentFrameIndex >= 0 && currentFrameIndex < radarFrames.length) {
+    return radarFrames[currentFrameIndex].time_ms;
+  }
+  return Date.now();
+}
+
+function updateTimelineUI() {
+  if (currentFrameIndex < 0 || currentFrameIndex >= radarFrames.length) return;
+  const frame = radarFrames[currentFrameIndex];
+  const isLive = (currentFrameIndex === radarFrames.length - 1);
+
+  const timeBadge = document.getElementById("timeline-time-badge");
+  const liveIndicator = document.getElementById("live-indicator-badge");
+
+  if (isLive) {
+    timeBadge.textContent = `LIVE (${frame.utc_time})`;
+    timeBadge.className = "px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-500/40 text-xs";
+    liveIndicator.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> LIVE';
+    liveIndicator.className = "px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1";
+  } else {
+    const relMin = frame.relative_mins || 0;
+    const relStr = relMin < 0 ? `${relMin}m` : `+${relMin}m`;
+    timeBadge.textContent = `${frame.utc_time} (${relStr})`;
+    timeBadge.className = "px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/40 text-xs";
+    liveIndicator.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> REPLAY (${relStr})`;
+    liveIndicator.className = "px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1";
+  }
+
+  document.getElementById("timeline-frame-label").textContent = `Frame: ${currentFrameIndex + 1} / ${radarFrames.length}`;
+}
+
+function togglePlayPause() {
+  if (isPlaying) {
+    pauseReplay();
+  } else {
+    startReplay();
+  }
+}
+
+function startReplay() {
+  if (radarFrames.length === 0) return;
+  isPlaying = true;
+  document.getElementById("play-pause-icon").className = "fa-solid fa-pause";
+  document.getElementById("play-pause-text").textContent = "Pause";
+
+  // If at end, loop back to start
+  if (currentFrameIndex >= radarFrames.length - 1) {
+    currentFrameIndex = 0;
+  }
+
+  playInterval = setInterval(() => {
+    let nextIndex = currentFrameIndex + 1;
+    if (nextIndex >= radarFrames.length) {
+      if (isLooping) {
+        nextIndex = 0;
+      } else {
+        pauseReplay();
+        return;
+      }
+    }
+    setRadarFrame(nextIndex);
+  }, playSpeed);
+}
+
+function pauseReplay() {
+  isPlaying = false;
+  clearInterval(playInterval);
+  playInterval = null;
+  document.getElementById("play-pause-icon").className = "fa-solid fa-play";
+  document.getElementById("play-pause-text").textContent = "Play Loop";
+}
+
+// -------------------------------------------------------------
+// LIGHTNING STREAM & CANVAS RENDERER
+// -------------------------------------------------------------
+
+async function loadLightningData() {
+  try {
+    const res = await fetch("/api/weather/lightning?window_mins=180");
+    if (!res.ok) return;
+    const data = await res.json();
+    allStrikes = data.strikes || [];
+
+    // Update Strike rate stat
+    const stats = data.stats || {};
+    if (stats.rate_per_min !== undefined) {
+      document.getElementById("lightning-strike-rate").textContent = `${stats.rate_per_min}/min`;
+    }
+
+    if (document.getElementById("layer-lightning").checked) {
+      renderLightning(getCurrentDisplayTimestamp());
+    }
+  } catch (err) {
+    console.error("Error fetching lightning strikes:", err);
+  }
+}
+
+function renderLightning(targetTimestampMs) {
+  if (!document.getElementById("layer-lightning").checked) {
+    lightningLayer.clearLayers();
+    return;
+  }
+
+  lightningLayer.clearLayers();
+  if (allStrikes.length === 0) return;
+
+  const mapBounds = map.getBounds();
+  // Window of strikes visible at this frame: up to targetTimestampMs and within past 45 mins
+  const windowMs = 45 * 60 * 1000;
+  const minTime = targetTimestampMs - windowMs;
+
+  allStrikes.forEach((s) => {
+    if (s.time_ms > targetTimestampMs || s.time_ms < minTime) return;
+
+    // Check map bounds with padding
+    if (s.lat < mapBounds.getSouth() - 1 || s.lat > mapBounds.getNorth() + 1 ||
+        s.lon < mapBounds.getWest() - 1 || s.lon > mapBounds.getEast() + 1) {
+      return;
+    }
+
+    const ageSec = Math.max(0, Math.round((targetTimestampMs - s.time_ms) / 1000));
+    const ageMins = ageSec / 60.0;
+
+    let color = "#FFE600";
+    let radius = 5;
+    let opacity = 0.9;
+    let className = "lightning-live-pulse";
+
+    if (ageMins < 2) {
+      color = "#FFE600"; // Neon yellow
+      radius = 6;
+      opacity = 1.0;
+    } else if (ageMins < 15) {
+      color = "#FFA502"; // Amber orange
+      radius = 4.5;
+      opacity = 0.85;
+      className = "";
+    } else if (ageMins < 30) {
+      color = "#FF4757"; // Red
+      radius = 3.5;
+      opacity = 0.70;
+      className = "";
+    } else {
+      color = "#A55EEA"; // Purple/violet
+      radius = 3.0;
+      opacity = 0.55;
+      className = "";
+    }
+
+    // High performance circle marker
+    const marker = L.circleMarker([s.lat, s.lon], {
+      radius: radius,
+      fillColor: color,
+      fillOpacity: opacity,
+      color: "#FFFFFF",
+      weight: ageMins < 2 ? 1.5 : 0.8,
+      className: className
+    });
+
+    const strikeDate = new Date(s.time_ms);
+    const timeStr = `${String(strikeDate.getUTCHours()).padStart(2, '0')}:${String(strikeDate.getUTCMinutes()).padStart(2, '0')}:${String(strikeDate.getUTCSeconds()).padStart(2, '0')}Z`;
+
+    marker.bindTooltip(`⚡ Lightning Strike<br>Time: ${timeStr} (${Math.round(ageMins)}m ago)`, {
+      direction: "top",
+      className: "leaflet-tooltip-metar",
+      offset: [0, -4]
+    });
+
+    lightningLayer.addLayer(marker);
+  });
+}
+
+// -------------------------------------------------------------
+// SIGMET HAZARDS & REGIONAL METARS
+// -------------------------------------------------------------
+
 async function loadSigmets() {
   if (!document.getElementById("layer-sigmets").checked) {
     sigmetsLayer.clearLayers();
@@ -132,7 +407,6 @@ async function loadSigmets() {
       const rawText = props.rawAirSigmet || props.rawText || "";
       const validTo = props.validTimeTo || "";
 
-      // Leaflet GeoJSON
       const geoLayer = L.geoJSON(feat, {
         style: {
           color: color,
@@ -158,7 +432,6 @@ async function loadSigmets() {
       geoLayer.bindPopup(popupHtml);
       sigmetsLayer.addLayer(geoLayer);
 
-      // Add to Briefing Drawer list
       const item = document.createElement("div");
       item.className = "bg-deck-panel p-2 rounded-lg border border-deck-border/60 flex flex-col gap-1";
       item.innerHTML = `
@@ -176,7 +449,6 @@ async function loadSigmets() {
   }
 }
 
-// Fetch Regional METARs for current visible map bounding box
 async function loadRegionalMetars() {
   if (!document.getElementById("layer-metars").checked) {
     metarsLayer.clearLayers();
@@ -205,7 +477,6 @@ async function loadRegionalMetars() {
 
       const marker = L.marker([stn.lat, stn.lon], { icon: customIcon });
 
-      // Station tooltip
       const windText = stn.wspd ? `${stn.wdir || '000'}@${stn.wspd}${stn.wgst ? 'G'+stn.wgst : ''}kt` : 'Calm';
       marker.bindTooltip(`${stn.icao} • ${windText}`, {
         permanent: false,
@@ -214,7 +485,6 @@ async function loadRegionalMetars() {
         offset: [0, -7]
       });
 
-      // Popup with full weather
       const catColor = cat === 'vfr' ? '#00B894' : cat === 'mvfr' ? '#0984E3' : cat === 'ifr' ? '#D63031' : '#6C5CE7';
       const popupHtml = `
         <div class="space-y-2 min-w-[240px]">
@@ -264,13 +534,15 @@ async function loadRegionalMetars() {
   }
 }
 
-// Window global helper for popup button
 window.selectAirportAsDest = function(icao) {
   document.getElementById("dest-input").value = icao;
   plotRoute();
 };
 
-// Plot Flight Route, Waypoints & Range Rings
+// -------------------------------------------------------------
+// ROUTE PLOTTER & BRIEFING
+// -------------------------------------------------------------
+
 async function plotRoute() {
   const dep = document.getElementById("dep-input").value.trim().toUpperCase() || "KPAO";
   const dest = document.getElementById("dest-input").value.trim().toUpperCase() || "";
@@ -290,7 +562,6 @@ async function plotRoute() {
     const destData = data.dest;
     const routeInfo = data.route;
 
-    // Draw Concentric Range Rings (25, 50, 75, 100 NM)
     if (document.getElementById("layer-rings").checked && depData) {
       const ringNm = [25, 50, 75, 100];
       ringNm.forEach((nm) => {
@@ -304,7 +575,6 @@ async function plotRoute() {
           fill: false
         });
 
-        // Add small distance badge
         const badgeLat = depData.lat + (nm / 60.0);
         const textIcon = L.divIcon({
           className: "custom-ring-badge",
@@ -319,7 +589,6 @@ async function plotRoute() {
       });
     }
 
-    // Departure Airport Marker (Gold Ring)
     const depIcon = L.divIcon({
       className: "custom-dep-icon",
       html: `<div class="w-5 h-5 rounded-full bg-blue-600 border-2 border-white shadow-lg flex items-center justify-center text-[10px] text-white font-bold">🛫</div>`,
@@ -329,7 +598,6 @@ async function plotRoute() {
     const depMarker = L.marker([depData.lat, depData.lon], { icon: depIcon }).bindTooltip(`DEP: ${depData.icao}`, { permanent: true, direction: "bottom" });
     routeLayer.addLayer(depMarker);
 
-    // If Destination is present, draw route line & destination marker
     if (destData && routeInfo) {
       const destIcon = L.divIcon({
         className: "custom-dest-icon",
@@ -340,7 +608,6 @@ async function plotRoute() {
       const destMarker = L.marker([destData.lat, destData.lon], { icon: destIcon }).bindTooltip(`DEST: ${destData.icao}`, { permanent: true, direction: "bottom" });
       routeLayer.addLayer(destMarker);
 
-      // Magenta Flight Line
       const flightLine = L.polyline(routeInfo.coordinates, {
         color: "#E056FD",
         weight: 3.5,
@@ -349,10 +616,8 @@ async function plotRoute() {
       });
       routeLayer.addLayer(flightLine);
 
-      // Fit bounds to encompass both departure and destination with padding
       map.fitBounds(flightLine.getBounds(), { padding: [80, 80] });
 
-      // Update Drawer Route Card
       document.getElementById("card-dep-icao").textContent = dep;
       document.getElementById("card-dest-icao").textContent = dest;
       document.getElementById("route-nm").textContent = `${routeInfo.distance_nm} NM`;
@@ -365,7 +630,6 @@ async function plotRoute() {
       document.getElementById("route-details-row").classList.add("hidden");
     }
 
-    // Refresh Drawer Briefing
     loadAirportBrief(dep);
 
   } catch (err) {
@@ -373,10 +637,8 @@ async function plotRoute() {
   }
 }
 
-// Load Weather Briefing for Sidebar Drawer
 async function loadAirportBrief(icao) {
   try {
-    // 1. Fetch Airport details & Runway crosswinds
     const aptRes = await fetch(`/api/airports/${icao}`);
     if (aptRes.ok) {
       const apt = await aptRes.json();
@@ -399,7 +661,6 @@ async function loadAirportBrief(icao) {
         document.getElementById("dep-raw-metar").textContent = metar.raw || "No METAR string available";
       }
 
-      // Render Runways & Crosswinds
       const rwyContainer = document.getElementById("runway-cards-container");
       rwyContainer.innerHTML = "";
 
@@ -433,7 +694,6 @@ async function loadAirportBrief(icao) {
       }
     }
 
-    // 2. Fetch TAF Forecast
     const tafRes = await fetch(`/api/weather/taf?icao=${icao}`);
     const tafContainer = document.getElementById("taf-forecast-container");
     tafContainer.innerHTML = "";
@@ -474,7 +734,10 @@ async function loadAirportBrief(icao) {
   }
 }
 
-// Setup Event Listeners
+// -------------------------------------------------------------
+// EVENT LISTENERS & CONTROLS SETUP
+// -------------------------------------------------------------
+
 function setupEventListeners() {
   // Layer Toggles
   document.getElementById("layer-sectional").addEventListener("change", (e) => {
@@ -483,8 +746,23 @@ function setupEventListeners() {
   });
 
   document.getElementById("layer-nexrad").addEventListener("change", (e) => {
-    if (e.target.checked) map.addLayer(nexradLayer);
-    else map.removeLayer(nexradLayer);
+    if (e.target.checked) {
+      if (radarFramesLayer) map.addLayer(radarFramesLayer);
+      else map.addLayer(nexradLayer);
+    } else {
+      if (radarFramesLayer) map.removeLayer(radarFramesLayer);
+      map.removeLayer(nexradLayer);
+    }
+  });
+
+  document.getElementById("layer-lightning").addEventListener("change", (e) => {
+    if (e.target.checked) {
+      document.getElementById("lightning-legend-card").classList.remove("hidden");
+      renderLightning(getCurrentDisplayTimestamp());
+    } else {
+      document.getElementById("lightning-legend-card").classList.add("hidden");
+      lightningLayer.clearLayers();
+    }
   });
 
   document.getElementById("layer-sigmets").addEventListener("change", (e) => {
@@ -507,10 +785,72 @@ function setupEventListeners() {
   opacityInput.addEventListener("input", (e) => {
     const val = e.target.value;
     document.getElementById("radar-opacity-val").textContent = `${val}%`;
-    if (nexradLayer) {
-      nexradLayer.setOpacity(val / 100.0);
+    const op = val / 100.0;
+    if (nexradLayer) nexradLayer.setOpacity(op);
+    if (radarFramesLayer) radarFramesLayer.setOpacity(op);
+  });
+
+  // Timeline Slider Scrubber
+  const timelineSlider = document.getElementById("timeline-slider");
+  timelineSlider.addEventListener("input", (e) => {
+    pauseReplay();
+    const idx = parseInt(e.target.value);
+    setRadarFrame(idx);
+  });
+
+  // Play / Pause Button
+  document.getElementById("btn-play-pause").addEventListener("click", togglePlayPause);
+
+  // Step Buttons
+  document.getElementById("btn-step-prev").addEventListener("click", () => {
+    pauseReplay();
+    if (currentFrameIndex > 0) {
+      setRadarFrame(currentFrameIndex - 1);
     }
   });
+
+  document.getElementById("btn-step-next").addEventListener("click", () => {
+    pauseReplay();
+    if (currentFrameIndex < radarFrames.length - 1) {
+      setRadarFrame(currentFrameIndex + 1);
+    }
+  });
+
+  // Snap Live Button
+  document.getElementById("btn-snap-live").addEventListener("click", () => {
+    pauseReplay();
+    if (radarFrames.length > 0) {
+      setRadarFrame(radarFrames.length - 1);
+    }
+  });
+
+  // Loop Toggle
+  const loopBtn = document.getElementById("btn-loop-toggle");
+  loopBtn.addEventListener("click", () => {
+    isLooping = !isLooping;
+    if (isLooping) {
+      loopBtn.className = "px-2.5 h-8 rounded-xl bg-deck border border-blue-500/50 text-blue-400 font-bold text-[11px] flex items-center gap-1 transition";
+    } else {
+      loopBtn.className = "px-2.5 h-8 rounded-xl bg-deck border border-deck-border text-gray-400 font-bold text-[11px] flex items-center gap-1 transition";
+    }
+  });
+
+  // Speed Buttons (1x, 2x, 4x)
+  const setSpeed = (spd, activeId) => {
+    playSpeed = spd;
+    document.querySelectorAll(".speed-btn").forEach((b) => {
+      b.className = "px-1.5 py-0.5 rounded text-gray-400 hover:text-white font-bold text-[10px] speed-btn";
+    });
+    document.getElementById(activeId).className = "px-1.5 py-0.5 rounded bg-blue-600 text-white font-bold text-[10px] speed-btn active";
+    if (isPlaying) {
+      clearInterval(playInterval);
+      startReplay();
+    }
+  };
+
+  document.getElementById("speed-1x").addEventListener("click", () => setSpeed(1000, "speed-1x"));
+  document.getElementById("speed-2x").addEventListener("click", () => setSpeed(500, "speed-2x"));
+  document.getElementById("speed-4x").addEventListener("click", () => setSpeed(250, "speed-4x"));
 
   // Route Form
   document.getElementById("btn-update-route").addEventListener("click", plotRoute);
